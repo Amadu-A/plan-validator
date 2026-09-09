@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 # scripts/check-foundation.sh
 #
-# Проверяет Foundation stage без Docker и business services. Скрипт гарантирует,
-# что обязательные project-contract files существуют, root Python quality gate
-# проходит, а Git не содержит whitespace errors.
+# Проверяет Foundation stage без Docker и business services.
+#
+# По умолчанию скрипт сначала автоматически исправляет безопасно исправляемые
+# Ruff lint-проблемы и форматирует Python-код, после чего выполняет повторную
+# неизменяющую проверку и architecture tests.
+#
+# Режим `--check` ничего не изменяет и предназначен для CI/startup validation.
 
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
+
+MODE="${1:---fix}"
 
 REQUIRED_FILES=(
   ".dockerignore"
@@ -41,6 +47,39 @@ require_command() {
   fi
 }
 
+# Проверяет поддерживаемый режим запуска.
+validate_mode() {
+  case "${MODE}" in
+    --fix|--check)
+      ;;
+    *)
+      printf 'ERROR: unsupported mode: %s\n' "${MODE}" >&2
+      printf 'Usage: %s [--fix|--check]\n' "$0" >&2
+      exit 4
+      ;;
+  esac
+}
+
+# Автоматически исправляет Python lint и formatting issues.
+apply_python_fixes() {
+  print_step "Ruff automatic fixes"
+  ruff check --fix .
+
+  print_step "Ruff automatic formatting"
+  ruff format .
+}
+
+# Выполняет неизменяющую финальную Python quality validation.
+check_python_quality() {
+  print_step "Ruff lint check"
+  ruff check .
+
+  print_step "Ruff format check"
+  ruff format --check .
+}
+
+validate_mode
+
 print_step "Foundation files"
 
 for required_file in "${REQUIRED_FILES[@]}"; do
@@ -48,10 +87,12 @@ for required_file in "${REQUIRED_FILES[@]}"; do
     printf 'ERROR: required file is missing: %s\n' "${required_file}" >&2
     exit 3
   fi
+
   printf '[OK] %s\n' "${required_file}"
 done
 
 print_step "Tooling"
+
 require_command python
 require_command ruff
 require_command pytest
@@ -60,17 +101,21 @@ python --version
 ruff --version
 pytest --version
 
-print_step "Ruff lint"
-ruff check .
+if [[ "${MODE}" == "--fix" ]]; then
+  apply_python_fixes
+else
+  printf '\nINFO: --check mode: source files will not be modified.\n'
+fi
 
-print_step "Ruff format"
-ruff format --check .
+check_python_quality
 
 print_step "Architecture tests"
 pytest tests/architecture
 
 print_step "Git whitespace"
-if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+
+if command -v git >/dev/null 2>&1 \
+  && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git diff --check
 else
   printf 'INFO: Git repository not detected; git diff --check skipped.\n'

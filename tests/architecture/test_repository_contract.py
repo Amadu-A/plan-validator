@@ -78,6 +78,4 @@ def test_gitignore_protects_secrets_and_runtime_data() -> None:
     )
 
     for pattern in required_patterns:
-        assert pattern in gitignore, (
-            f".gitignore pattern is missing: {pattern}"
-        )
+        assert pattern in gitignore, f".gitignore pattern is missing: {pattern}"
