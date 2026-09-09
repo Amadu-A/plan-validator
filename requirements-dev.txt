@@ -1,8 +1,11 @@
 # requirements-dev.txt
 #
-# Минимальные root-level инструменты разработки для Foundation stage.
-# Runtime dependencies каждого микросервиса будут определяться рядом с самим
-# сервисом, чтобы monorepo не превратился в общий неуправляемый requirements.
+# Root-level development dependencies Plan Validator.
+#
+# Common package устанавливается editable, чтобы сервисы и тесты использовали
+# текущий source tree без ручной переустановки после каждого изменения.
+
+-e ./packages/common
 
 pytest==9.1.1
 ruff==0.16.6
