@@ -1,0 +1,96 @@
+# compose.yaml
+#
+# Project-specific инфраструктура Plan Validator.
+#
+# Shared Ollama, RabbitMQ и n8n здесь намеренно не создаются: ими владеет
+# repository shared_infrasktructure.
+#
+# На Этапе 2 Compose запускает только PostgreSQL и Qdrant. Application services
+# будут добавляться в этот файл на соответствующих этапах.
+
+name: ${COMPOSE_PROJECT_NAME:-plan-validator}
+
+x-default-logging: &default-logging
+  driver: local
+  options:
+    max-size: ${PLAN_VALIDATOR_DOCKER_LOG_MAX_SIZE:-10m}
+    max-file: ${PLAN_VALIDATOR_DOCKER_LOG_MAX_FILE:-5}
+
+services:
+  postgres:
+    image: ${PLAN_VALIDATOR_POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${PLAN_VALIDATOR_POSTGRES_DB:-plan_validator}
+      POSTGRES_USER: ${PLAN_VALIDATOR_POSTGRES_USER:-plan_validator}
+      POSTGRES_PASSWORD: ${PLAN_VALIDATOR_POSTGRES_PASSWORD:?PLAN_VALIDATOR_POSTGRES_PASSWORD must be set in .env}
+
+    ports:
+      - >-
+        ${PLAN_VALIDATOR_BIND_IP:-127.0.0.1}:${PLAN_VALIDATOR_POSTGRES_HOST_PORT:-5438}:5432
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    networks:
+      - private
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready
+          -U "$${POSTGRES_USER}"
+          -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    logging: *default-logging
+
+  qdrant:
+    image: ${PLAN_VALIDATOR_QDRANT_IMAGE:-qdrant/qdrant:v1.19.0}
+    restart: unless-stopped
+
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+
+    ports:
+      - >-
+        ${PLAN_VALIDATOR_BIND_IP:-127.0.0.1}:${PLAN_VALIDATOR_QDRANT_HTTP_HOST_PORT:-6335}:6333
+      - >-
+        ${PLAN_VALIDATOR_BIND_IP:-127.0.0.1}:${PLAN_VALIDATOR_QDRANT_GRPC_HOST_PORT:-6336}:6334
+
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+    networks:
+      - private
+
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/6333
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+    logging: *default-logging
+
+networks:
+  private:
+    name: ${PLAN_VALIDATOR_PRIVATE_NETWORK_NAME:-plan-validator-private}
+
+  ai-shared:
+    external: true
+    name: ${PLAN_VALIDATOR_SHARED_NETWORK_NAME:-ai-shared}
+
+volumes:
+  postgres-data:
+  qdrant-data:
