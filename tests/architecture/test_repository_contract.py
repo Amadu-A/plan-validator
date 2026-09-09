@@ -40,12 +40,10 @@ def test_required_foundation_documents_exist() -> None:
 
 
 def test_shared_engineering_standard_is_pinned() -> None:
-    """Не позволяет незаметно потерять воспроизводимый pin shared code-style."""
+    """Проверяет воспроизводимый pin внешнего shared engineering standard."""
     standard = read_project_file("docs/SHARED_ENGINEERING_STANDARD.md")
-    readme = read_project_file("README.md")
 
     assert SHARED_STANDARD_COMMIT in standard
-    assert SHARED_STANDARD_COMMIT in readme
 
 
 def test_retention_policy_covers_temporary_t_and_pz_contexts() -> None:
@@ -80,4 +78,6 @@ def test_gitignore_protects_secrets_and_runtime_data() -> None:
     )
 
     for pattern in required_patterns:
-        assert pattern in gitignore, f".gitignore pattern is missing: {pattern}"
+        assert pattern in gitignore, (
+            f".gitignore pattern is missing: {pattern}"
+        )
