@@ -1,0 +1,25 @@
+# services/api-gateway/pyproject.toml
+#
+# Отдельный installable package публичного API Gateway Plan Validator.
+#
+# Gateway зависит от Common Package и transport/http libraries, но не получает
+# SQLAlchemy, Qdrant, Celery или Ollama dependencies.
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "plan-validator-api-gateway"
+version = "0.1.0"
+description = "Публичный API Gateway Plan Validator."
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "plan-validator-common==0.1.0",
+    "fastapi==0.141.1",
+    "httpx==0.28.1",
+    "uvicorn==0.52.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api_gateway"]

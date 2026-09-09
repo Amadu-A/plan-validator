@@ -2,10 +2,11 @@
 #
 # Root-level development dependencies Plan Validator.
 #
-# Common package устанавливается editable, чтобы сервисы и тесты использовали
-# текущий source tree без ручной переустановки после каждого изменения.
+# Editable packages позволяют тестам использовать текущий source tree без
+# переустановки после каждого изменения Python-файла.
 
 -e ./packages/common
+-e ./services/api-gateway
 
 pytest==9.1.1
 ruff==0.16.6
