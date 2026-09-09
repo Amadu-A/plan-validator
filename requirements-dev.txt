@@ -1,0 +1,8 @@
+# requirements-dev.txt
+#
+# Минимальные root-level инструменты разработки для Foundation stage.
+# Runtime dependencies каждого микросервиса будут определяться рядом с самим
+# сервисом, чтобы monorepo не превратился в общий неуправляемый requirements.
+
+pytest==9.1.1
+ruff==0.16.6

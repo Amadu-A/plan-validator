@@ -1,0 +1,59 @@
+# pyproject.toml
+#
+# Корневая конфигурация quality tools для monorepo plan-validator.
+# Файл не описывает installable Python package: отдельные сервисы будут иметь
+# собственные runtime dependencies, а корень задаёт единый lint/test baseline.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    ".git",
+    ".venv",
+    "var",
+    "data/runtime",
+    "data/tmp",
+    "artifacts",
+]
+
+[tool.ruff.lint]
+select = [
+    "ANN",
+    "B",
+    "C4",
+    "D",
+    "E",
+    "F",
+    "I",
+    "RUF",
+    "SIM",
+    "UP",
+]
+ignore = [
+    "D203",
+    "D213",
+    # Русская документация обязательна project code-style.
+    # RUF001/RUF002/RUF003 считают отдельные кириллические символы
+    # визуально неоднозначными относительно латиницы и дают false positive
+    # для русских strings/docstrings/comments.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+]

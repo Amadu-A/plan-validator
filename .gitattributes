@@ -1,0 +1,22 @@
+# .gitattributes
+#
+# Нормализует окончания строк. Shell/YAML/Python/Markdown должны оставаться LF,
+# чтобы Linux containers и bootstrap scripts не ломались после редактирования
+# проекта на Windows.
+
+* text=auto
+
+*.sh text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.env text eol=lf
+*.example text eol=lf
+
+*.ps1 text eol=crlf
