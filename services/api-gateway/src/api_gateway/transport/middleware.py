@@ -21,6 +21,9 @@ from starlette.types import (
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
+_CORRELATION_SCOPE_KEY = "plan_validator.correlation_id"
+_REQUEST_SCOPE_KEY = "plan_validator.request_id"
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -53,6 +56,12 @@ class RequestContextMiddleware:
 
         correlation_id = _normalize_request_identifier(headers.get("x-correlation-id"))
         request_id = _normalize_request_identifier(headers.get("x-request-id"))
+
+        _store_request_identifiers(
+            scope=scope,
+            correlation_id=correlation_id,
+            request_id=request_id,
+        )
 
         started_at = time.perf_counter()
         status_code = 500
@@ -104,6 +113,17 @@ class RequestContextMiddleware:
                         "duration_ms": (duration_ms),
                     },
                 )
+
+
+def _store_request_identifiers(
+    *,
+    scope: Scope,
+    correlation_id: str,
+    request_id: str,
+) -> None:
+    """Сохраняет IDs в ASGI scope независимо от lifetime ContextVar."""
+    scope[_CORRELATION_SCOPE_KEY] = correlation_id
+    scope[_REQUEST_SCOPE_KEY] = request_id
 
 
 def _normalize_request_identifier(

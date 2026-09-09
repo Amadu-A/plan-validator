@@ -4,6 +4,7 @@
 
 from plan_validator_common.exceptions import (
     ApplicationError,
+    AuthenticationError,
     ExternalDependencyError,
     PlanValidatorError,
     ResourceConflictError,
@@ -17,6 +18,10 @@ def test_application_exceptions_share_project_root() -> None:
     assert issubclass(
         ApplicationError,
         PlanValidatorError,
+    )
+    assert issubclass(
+        AuthenticationError,
+        ApplicationError,
     )
     assert issubclass(
         ResourceNotFoundError,

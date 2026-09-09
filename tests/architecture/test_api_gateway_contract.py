@@ -131,7 +131,7 @@ def test_gateway_compose_runtime_is_bounded_and_non_root() -> None:
     required_markers = (
         "api-gateway:",
         "services/api-gateway/Dockerfile",
-        "./var/log:/var/log/plan-validator",
+        "./var/log:/app/var/log",
         "read_only: true",
         "no-new-privileges:true",
         "cap_drop:",
@@ -152,7 +152,7 @@ def test_gateway_dockerfile_uses_pinned_python_and_non_root_user() -> None:
 
 
 def test_gateway_has_versioned_public_api() -> None:
-    """Фиксирует стабильный `/api/v1` prefix отдельно от operational health."""
+    """Фиксирует `/api/v1` prefix отдельно от operational health."""
     api_v1 = read_project_file("services/api-gateway/src/api_gateway/transport/routers/api_v1.py")
     health = read_project_file("services/api-gateway/src/api_gateway/transport/routers/health.py")
 

@@ -3,7 +3,8 @@
 """Architecture tests для infrastructure/bootstrap contract Plan Validator.
 
 Тесты защищают ownership shared infrastructure, изоляцию project databases,
-bounded logging, sparse secrets и отсутствие опасного Docker socket coupling.
+Pydantic-first application configuration, bounded logging, sparse secrets и
+отсутствие опасного Docker socket coupling.
 """
 
 from pathlib import Path
@@ -11,7 +12,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def read_project_file(relative_path: str) -> str:
+def read_project_file(
+    relative_path: str,
+) -> str:
     """Читает project file для infrastructure architecture assertions."""
     return (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
 
@@ -64,7 +67,7 @@ def test_compose_declares_shared_network_as_external() -> None:
 
 
 def test_compose_does_not_duplicate_shared_services() -> None:
-    """Не позволяет добавить собственные Ollama, RabbitMQ или n8n в project Compose."""
+    """Не позволяет добавить собственные Ollama, RabbitMQ или n8n."""
     compose = read_project_file("compose.yaml")
 
     forbidden_service_definitions = (
@@ -94,11 +97,28 @@ def test_compose_has_bounded_container_logging() -> None:
 
 
 def test_compose_does_not_mount_docker_socket() -> None:
-    """Запрещает выдавать project containers управление host Docker daemon."""
+    """Запрещает выдавать containers управление host Docker daemon."""
     compose = read_project_file("compose.yaml")
 
     assert "/var/run/docker.sock" not in compose
     assert "container_name:" not in compose
+
+
+def test_application_services_do_not_duplicate_pydantic_environment() -> None:
+    """Фиксирует отсутствие больших application `environment:` blocks."""
+    compose = read_project_file("compose.yaml")
+
+    auth_start = compose.index("\n  auth-service:\n")
+    auth_end = compose.index("\n  auth-migrate:\n")
+
+    gateway_start = compose.index("\n  api-gateway:\n")
+    gateway_end = compose.index("\nnetworks:\n")
+
+    auth_block = compose[auth_start:auth_end]
+    gateway_block = compose[gateway_start:gateway_end]
+
+    assert "\n    environment:" not in auth_block
+    assert "\n    environment:" not in gateway_block
 
 
 def test_env_example_defines_only_two_required_project_secrets() -> None:
@@ -137,7 +157,7 @@ def test_rabbitmq_isolation_is_explicit() -> None:
 
 
 def test_bootstrap_does_not_print_generated_secrets() -> None:
-    """Проверяет, что bootstrap не выводит generated secret values в stdout."""
+    """Проверяет, что bootstrap не выводит generated secret values."""
     bootstrap_script = read_project_file("scripts/bootstrap-env.sh")
 
     assert "openssl rand -hex 32" in bootstrap_script

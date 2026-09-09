@@ -4,6 +4,7 @@
 
 from plan_validator_common.exceptions import (
     ApplicationError,
+    AuthenticationError,
     ConfigurationError,
     ExternalDependencyError,
     PlanValidatorError,
@@ -20,6 +21,7 @@ from plan_validator_common.settings import (
 
 __all__ = [
     "ApplicationError",
+    "AuthenticationError",
     "CommonSettings",
     "ConfigurationError",
     "Environment",

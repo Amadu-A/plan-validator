@@ -2,8 +2,8 @@
 #
 # Runtime image публичного API Gateway Plan Validator.
 #
-# Gateway работает без root privileges. Python bytecode отключён, потому что
-# container filesystem в runtime read-only, кроме явно смонтированных каталогов.
+# Safe application configuration читается Pydantic напрямую из `.env.example`.
+# Private `.env` Gateway не получает, потому что secrets ему не требуются.
 
 FROM python:3.12.14-slim-bookworm
 
@@ -13,6 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOME=/tmp
 
 WORKDIR /app
+
+COPY .env.example .env.example
 
 COPY packages/common/pyproject.toml packages/common/pyproject.toml
 COPY packages/common/src packages/common/src

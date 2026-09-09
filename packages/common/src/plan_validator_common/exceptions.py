@@ -15,6 +15,10 @@ class ApplicationError(PlanValidatorError):
     """Базовый тип ожидаемых ошибок application use-case layer."""
 
 
+class AuthenticationError(ApplicationError):
+    """Означает отсутствие или недействительность authentication context."""
+
+
 class ResourceNotFoundError(ApplicationError):
     """Означает отсутствие требуемого application resource."""
 

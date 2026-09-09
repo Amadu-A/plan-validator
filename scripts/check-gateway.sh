@@ -3,14 +3,8 @@
 #
 # Автоматический quality/runtime gate API Gateway.
 #
-# --fix по умолчанию:
-# - синхронизирует editable Gateway dependencies;
-# - запускает Common/Root auto-fix;
-# - проверяет infrastructure без изменения;
-# - выполняет Gateway unit/transport/architecture tests;
-# - создаёт runtime log directory;
-# - build/start Gateway container;
-# - выполняет live/ready/system smoke checks.
+# --fix синхронизирует dependencies, исправляет Ruff/format, проверяет tests,
+# build/start Gateway и выполняет runtime smoke.
 #
 # --check не устанавливает dependencies, не форматирует и не rebuild'ит service.
 
@@ -26,15 +20,21 @@ REQUIRED_FILES=(
   "services/api-gateway/pyproject.toml"
   "services/api-gateway/src/api_gateway/main.py"
   "services/api-gateway/src/api_gateway/application/internal_service.py"
+  "services/api-gateway/src/api_gateway/application/auth_service.py"
   "services/api-gateway/src/api_gateway/application/system_info.py"
   "services/api-gateway/src/api_gateway/core/container.py"
   "services/api-gateway/src/api_gateway/core/settings.py"
   "services/api-gateway/src/api_gateway/infrastructure/http_client.py"
+  "services/api-gateway/src/api_gateway/infrastructure/http_context.py"
+  "services/api-gateway/src/api_gateway/infrastructure/auth_client.py"
   "services/api-gateway/src/api_gateway/transport/app.py"
+  "services/api-gateway/src/api_gateway/transport/auth_schemas.py"
+  "services/api-gateway/src/api_gateway/transport/session_cookie.py"
   "services/api-gateway/src/api_gateway/transport/errors.py"
   "services/api-gateway/src/api_gateway/transport/middleware.py"
   "services/api-gateway/src/api_gateway/transport/schemas.py"
   "services/api-gateway/src/api_gateway/transport/routers/api_v1.py"
+  "services/api-gateway/src/api_gateway/transport/routers/auth.py"
   "services/api-gateway/src/api_gateway/transport/routers/health.py"
   "services/api-gateway/src/api_gateway/transport/routers/system.py"
   "tests/architecture/test_api_gateway_contract.py"
@@ -42,16 +42,15 @@ REQUIRED_FILES=(
   "tests/unit/api_gateway/test_system_info.py"
   "tests/unit/api_gateway/test_http_client.py"
   "tests/transport/api_gateway/test_gateway.py"
+  "tests/transport/api_gateway/test_auth.py"
   "docs/API_GATEWAY.md"
 )
 
-# Печатает единообразный заголовок validation step.
 print_step() {
   local step_name="$1"
   printf '\n=== %s ===\n' "${step_name}"
 }
 
-# Проверяет наличие обязательной command dependency.
 require_command() {
   local command_name="$1"
 
@@ -62,7 +61,6 @@ require_command() {
   fi
 }
 
-# Проверяет допустимый режим запуска.
 validate_mode() {
   case "${MODE}" in
     --fix|--check)
@@ -77,7 +75,6 @@ validate_mode() {
   esac
 }
 
-# Проверяет наличие файлов законченного Gateway stage.
 check_required_files() {
   local required_file
 
@@ -92,7 +89,6 @@ check_required_files() {
   done
 }
 
-# Проверяет точные версии editable Gateway package и runtime dependencies.
 check_python_dependencies() {
   python - <<'PY'
 from importlib.metadata import PackageNotFoundError, version
@@ -102,7 +98,9 @@ EXPECTED = {
     "plan-validator-common": "0.1.0",
     "fastapi": "0.141.1",
     "httpx": "0.28.1",
+    "httpx2": "2.12.0",
     "uvicorn": "0.52.1",
+    "email-validator": "2.3.0",
     "pytest": "9.1.1",
     "ruff": "0.16.6",
 }
@@ -133,7 +131,6 @@ print("[OK] API Gateway dependencies are synchronized.")
 PY
 }
 
-# Устанавливает root editable dependencies только если Gateway environment устарел.
 sync_python_dependencies() {
   if check_python_dependencies >/dev/null 2>&1; then
     printf '[OK] API Gateway dependencies already synchronized.\n'
@@ -148,7 +145,6 @@ sync_python_dependencies() {
   check_python_dependencies
 }
 
-# Создаёт writable host runtime root, принадлежащий текущему Linux user.
 prepare_runtime_directories() {
   mkdir -p var/log
 
@@ -162,7 +158,6 @@ prepare_runtime_directories() {
     "${ROOT_DIR}/var/log"
 }
 
-# Проверяет public Gateway HTTP endpoints на реальном container runtime.
 check_gateway_http() {
   local gateway_port
 
@@ -208,7 +203,6 @@ print("[OK] Gateway versioned system endpoint.")
 '
 }
 
-# Проверяет, что container не получил root privileges.
 check_gateway_runtime_user() {
   local container_uid
 
@@ -233,7 +227,6 @@ check_gateway_runtime_user() {
     "${container_uid}"
 }
 
-# Проверяет реальный JSON file log, создаваемый Common Package внутри container.
 check_gateway_file_log() {
   local log_file
 

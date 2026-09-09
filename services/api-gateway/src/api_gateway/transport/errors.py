@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from plan_validator_common.exceptions import (
     ApplicationError,
+    AuthenticationError,
     ConfigurationError,
     ExternalDependencyError,
     PlanValidatorError,
@@ -18,72 +19,29 @@ from plan_validator_common.exceptions import (
 from plan_validator_common.observability import (
     get_log_context,
 )
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api_gateway.transport.schemas import (
     ErrorDetail,
     ErrorResponse,
 )
 
+_CORRELATION_SCOPE_KEY = "plan_validator.correlation_id"
+_REQUEST_SCOPE_KEY = "plan_validator.request_id"
+
 _LOGGER = logging.getLogger(__name__)
-
-
-class UnhandledExceptionMiddleware:
-    """Обрабатывает unexpected HTTP exceptions внутри request correlation context."""
-
-    def __init__(self, app: ASGIApp) -> None:
-        """Сохраняет следующий ASGI application в error-boundary chain."""
-        self._app = app
-
-    async def __call__(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        """Возвращает generic 500 и пишет единственный traceback на HTTP boundary."""
-        try:
-            await self._app(
-                scope,
-                receive,
-                send,
-            )
-        except Exception as exc:
-            if scope["type"] != "http":
-                raise
-
-            _LOGGER.exception(
-                "Unhandled API Gateway exception",
-                extra={
-                    "event": "unhandled_exception",
-                    "path": scope.get(
-                        "path",
-                        "",
-                    ),
-                    "error_type": type(exc).__name__,
-                },
-            )
-
-            response = _build_error_response(
-                status_code=500,
-                code="internal_error",
-                message="Internal server error",
-            )
-
-            await response(
-                scope,
-                receive,
-                send,
-            )
 
 
 def register_error_handlers(
     app: FastAPI,
 ) -> None:
-    """Регистрирует mapping ожидаемых project exceptions в HTTP."""
+    """Регистрирует единый mapping project/unexpected exceptions в HTTP."""
     app.add_exception_handler(
         PlanValidatorError,
         handle_project_error,
+    )
+    app.add_exception_handler(
+        Exception,
+        handle_unexpected_error,
     )
 
 
@@ -100,6 +58,8 @@ async def handle_project_error(
 
     status_code, code, message = _classify_project_error(exc)
 
+    correlation_id, request_id = _get_request_identifiers(request)
+
     _LOGGER.warning(
         "Project request failed",
         extra={
@@ -107,14 +67,81 @@ async def handle_project_error(
             "path": request.url.path,
             "status_code": status_code,
             "error_code": code,
-            "error_type": type(exc).__name__,
+            "error_type": (type(exc).__name__),
+            "correlation_id": (correlation_id),
+            "request_id": request_id,
         },
     )
 
     return _build_error_response(
+        correlation_id=correlation_id,
+        request_id=request_id,
         status_code=status_code,
         code=code,
         message=message,
+    )
+
+
+async def handle_unexpected_error(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    """Логирует один traceback и сохраняет IDs после ContextVar reset."""
+    correlation_id, request_id = _get_request_identifiers(request)
+
+    _LOGGER.exception(
+        "Unhandled API Gateway exception",
+        extra={
+            "event": "unhandled_exception",
+            "path": request.url.path,
+            "error_type": (type(exc).__name__),
+            "correlation_id": (correlation_id),
+            "request_id": request_id,
+        },
+    )
+
+    return _build_error_response(
+        correlation_id=correlation_id,
+        request_id=request_id,
+        status_code=500,
+        code="internal_error",
+        message="Internal server error",
+    )
+
+
+def _get_request_identifiers(
+    request: Request,
+) -> tuple[
+    str | None,
+    str | None,
+]:
+    """Читает IDs из ASGI scope с ContextVar fallback."""
+    context = get_log_context()
+
+    scope_correlation_id = request.scope.get(_CORRELATION_SCOPE_KEY)
+    scope_request_id = request.scope.get(_REQUEST_SCOPE_KEY)
+
+    correlation_id = (
+        scope_correlation_id
+        if isinstance(
+            scope_correlation_id,
+            str,
+        )
+        else context.correlation_id
+    )
+
+    request_id = (
+        scope_request_id
+        if isinstance(
+            scope_request_id,
+            str,
+        )
+        else context.request_id
+    )
+
+    return (
+        correlation_id,
+        request_id,
     )
 
 
@@ -122,6 +149,16 @@ def _classify_project_error(
     exc: PlanValidatorError,
 ) -> tuple[int, str, str]:
     """Возвращает public HTTP mapping без зависимости application от FastAPI."""
+    if isinstance(
+        exc,
+        AuthenticationError,
+    ):
+        return (
+            401,
+            "authentication_required",
+            str(exc) or "Authentication required",
+        )
+
     if isinstance(
         exc,
         ResourceNotFoundError,
@@ -191,22 +228,45 @@ def _classify_project_error(
 
 def _build_error_response(
     *,
+    correlation_id: str | None,
+    request_id: str | None,
     status_code: int,
     code: str,
     message: str,
 ) -> JSONResponse:
-    """Создаёт единый JSON error envelope с correlation identifier."""
-    context = get_log_context()
-
+    """Создаёт error envelope и явно сохраняет request identifiers в headers."""
     body = ErrorResponse(
         error=ErrorDetail(
             code=code,
             message=message,
-            correlation_id=(context.correlation_id),
+            correlation_id=(correlation_id),
         )
+    )
+
+    headers = _build_error_headers(
+        correlation_id=correlation_id,
+        request_id=request_id,
     )
 
     return JSONResponse(
         status_code=status_code,
         content=body.model_dump(mode="json"),
+        headers=headers,
     )
+
+
+def _build_error_headers(
+    *,
+    correlation_id: str | None,
+    request_id: str | None,
+) -> dict[str, str]:
+    """Формирует request identity headers для любого error response."""
+    headers: dict[str, str] = {}
+
+    if correlation_id is not None:
+        headers["X-Correlation-ID"] = correlation_id
+
+    if request_id is not None:
+        headers["X-Request-ID"] = request_id
+
+    return headers

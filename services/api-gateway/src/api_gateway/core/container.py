@@ -2,12 +2,29 @@
 
 """Composition root dependencies API Gateway."""
 
-from dataclasses import dataclass, field
+from dataclasses import (
+    dataclass,
+    field,
+)
 
-from api_gateway.application.internal_service import InternalServiceClient
-from api_gateway.application.system_info import GetSystemInfoUseCase
-from api_gateway.core.settings import GatewaySettings
-from api_gateway.infrastructure.http_client import HttpInternalServiceClient
+from api_gateway.application.auth_service import (
+    AuthServiceClient,
+)
+from api_gateway.application.internal_service import (
+    InternalServiceClient,
+)
+from api_gateway.application.system_info import (
+    GetSystemInfoUseCase,
+)
+from api_gateway.core.settings import (
+    GatewaySettings,
+)
+from api_gateway.infrastructure.auth_client import (
+    HttpAuthServiceClient,
+)
+from api_gateway.infrastructure.http_client import (
+    HttpInternalServiceClient,
+)
 
 
 @dataclass(slots=True)
@@ -16,6 +33,7 @@ class GatewayContainer:
 
     settings: GatewaySettings
     system_info: GetSystemInfoUseCase
+    auth_service: AuthServiceClient
     _ready: bool = field(
         default=False,
         init=False,
@@ -40,12 +58,16 @@ class GatewayContainer:
         *,
         base_url: str,
     ) -> InternalServiceClient:
-        """Создаёт concrete HTTP adapter через composition root."""
+        """Создаёт concrete generic HTTP adapter через composition root."""
         return HttpInternalServiceClient(
             base_url=base_url,
             connect_timeout_seconds=(self.settings.internal_http.connect_timeout_seconds),
             read_timeout_seconds=(self.settings.internal_http.read_timeout_seconds),
         )
+
+    async def aclose(self) -> None:
+        """Закрывает owned long-lived downstream HTTP clients."""
+        await self.auth_service.aclose()
 
 
 def build_container(
@@ -54,12 +76,19 @@ def build_container(
     """Собирает Gateway dependencies без скрытых module-level singletons."""
     system_info = GetSystemInfoUseCase(
         service=settings.service_name,
-        service_version=settings.service_version,
+        service_version=(settings.service_version),
         api_version=settings.api_version,
-        environment=settings.environment.value,
+        environment=(settings.environment.value),
+    )
+
+    auth_service = HttpAuthServiceClient(
+        base_url=(settings.auth_service.base_url),
+        connect_timeout_seconds=(settings.internal_http.connect_timeout_seconds),
+        read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
     )
 
     return GatewayContainer(
         settings=settings,
         system_info=system_info,
+        auth_service=auth_service,
     )

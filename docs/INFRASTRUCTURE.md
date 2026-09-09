@@ -2,18 +2,17 @@
 
 # Infrastructure и Bootstrap Plan Validator
 
-Документ описывает инфраструктуру Этапа 2. Он не описывает ещё не реализованные
-application services как работающие.
+Документ описывает infrastructure/bootstrap contract Plan Validator.
 
 ## 1. Ownership
 
-Shared infrastructure остаётся отдельным lifecycle в repository:
+Shared repository:
 
 ```text
 Amadu-A/shared_infrasktructure
 ```
 
-Она владеет:
+владеет:
 
 ```text
 Ollama
@@ -22,16 +21,17 @@ n8n
 external Docker network ai-shared
 ```
 
-`plan-validator` не создаёт собственные копии этих services.
-
-Project-specific infrastructure:
+Project-specific:
 
 ```text
 PostgreSQL 16
 Qdrant 1.19.0
 private Docker network
+application containers
 project volumes
 ```
+
+`plan-validator` не создаёт duplicate shared Ollama/RabbitMQ/n8n.
 
 ## 2. Первый запуск
 
@@ -41,54 +41,100 @@ project volumes
 ./scripts/up.sh
 ```
 
-Он:
+Он последовательно выполняет stage-specific исправляющие gates, migrations,
+Compose startup и затем immutable validation.
 
-1. автоматически исправляет безопасно исправляемые Ruff/format issues;
-2. создаёт sparse `.env`, если его ещё нет;
-3. генерирует только два private project secrets;
-4. проверяет/поднимает shared infrastructure из её собственного repository;
-5. гарантирует наличие `qwen3-vl:8b-instruct` в shared Ollama;
-6. создаёт RabbitMQ vhost `/plan-validator`;
-7. создаёт/обновляет RabbitMQ user `plan_validator`;
-8. проверяет Docker Compose configuration;
-9. подтягивает project infrastructure images;
-10. запускает project Compose;
-11. ждёт health project infrastructure;
-12. запускает неизменяющую итоговую проверку.
-
-Обычный повторный lifecycle остаётся совместимым с:
+Обычный повторный lifecycle остаётся:
 
 ```bash
 docker compose up -d --build
 ```
 
-Однако pure Compose намеренно не владеет созданием external `ai-shared` и
-RabbitMQ application credentials. Это обязанности first-run/bootstrap layer.
+Pure Compose намеренно не владеет созданием external `ai-shared`,
+RabbitMQ application credentials или migration orchestration.
 
-## 3. Sparse `.env`
+## 3. Configuration ownership
 
-Committed:
+Application configuration принадлежит Pydantic Settings, а не Compose.
+
+Committed safe catalog:
 
 ```text
 .env.example
 ```
 
-Private local:
+Private sparse file:
 
 ```text
 .env
 ```
 
-Project `.env` по умолчанию содержит только:
+Project `.env` содержит только private values:
 
 ```text
 PLAN_VALIDATOR_POSTGRES_PASSWORD=<generated>
 PLAN_VALIDATOR_RABBITMQ_PASSWORD=<generated>
 ```
 
-Остальные безопасные defaults находятся в `.env.example` и `compose.yaml`.
+Приоритет application settings:
 
-## 4. PostgreSQL
+```text
+Pydantic defaults
+    ↓
+.env.example
+    ↓
+.env / process environment where the service receives secrets
+    ↓
+explicit runtime overrides
+```
+
+### Что не делаем
+
+Для application services не создаются огромные Compose-блоки:
+
+```yaml
+environment:
+  PLAN_VALIDATOR_FOO: ...
+  PLAN_VALIDATOR_BAR: ...
+  PLAN_VALIDATOR_BAZ: ...
+```
+
+если эти values уже являются Pydantic/default `.env.example` configuration.
+
+### Что остаётся в Compose
+
+Compose отвечает за deployment/container wiring:
+
+```text
+build/image
+container user
+ports/expose
+networks
+volumes
+depends_on
+healthcheck
+read_only/tmpfs
+security_opt/cap_drop
+logging driver
+env_file для минимальной передачи secrets, когда service действительно их использует
+```
+
+Infrastructure images являются отдельным случаем. Например PostgreSQL не знает
+о нашем Pydantic package и требует штатные `POSTGRES_*` environment variables.
+
+## 4. `.env.example` внутри application images
+
+Application Dockerfile копирует committed `.env.example` в working directory.
+
+Это позволяет Pydantic Settings внутри container читать safe baseline напрямую,
+не заставляя Compose повторять каждую application variable.
+
+Private `.env` никогда не копируется в image.
+
+Service, которому нужен secret, может получить sparse `.env` через Compose
+`env_file`. Service, которому secrets не нужны, sparse `.env` не получает.
+
+## 5. PostgreSQL
 
 Image:
 
@@ -96,19 +142,13 @@ Image:
 postgres:16-alpine
 ```
 
-Container port:
-
-```text
-5432
-```
-
-Default development host binding:
+Default host binding:
 
 ```text
 127.0.0.1:5438
 ```
 
-Application containers позже будут обращаться по Docker DNS:
+Container DNS:
 
 ```text
 postgres:5432
@@ -120,7 +160,10 @@ Persistent volume:
 postgres-data
 ```
 
-## 5. Qdrant
+Application bounded contexts используют отдельные schemas и отдельные migration
+version tables.
+
+## 6. Qdrant
 
 Pinned image:
 
@@ -128,25 +171,11 @@ Pinned image:
 qdrant/qdrant:v1.19.0
 ```
 
-Container ports:
+Host bindings:
 
 ```text
-6333 REST
-6334 gRPC
-```
-
-Default development host bindings:
-
-```text
-127.0.0.1:6335 -> 6333
-127.0.0.1:6336 -> 6334
-```
-
-Application containers позже используют:
-
-```text
-http://qdrant:6333
-qdrant:6334
+127.0.0.1:6335 -> REST 6333
+127.0.0.1:6336 -> gRPC 6334
 ```
 
 Persistent volume:
@@ -155,33 +184,26 @@ Persistent volume:
 qdrant-data
 ```
 
-Qdrant telemetry отключена project configuration.
+Qdrant telemetry отключена.
 
-## 6. Networks
+## 7. Networks
 
-Private network:
+Private:
 
 ```text
 plan-validator-private
 ```
 
-На ней находятся PostgreSQL, Qdrant и позже application services, которым нужен
-project storage.
-
-External shared network:
+Shared external:
 
 ```text
 ai-shared
 ```
 
-К ней позже подключаются только services, которым действительно нужны
+К `ai-shared` подключаются только services, которым реально нужны shared
 Ollama/RabbitMQ/n8n.
 
-Project Compose не создаёт `ai-shared`.
-
-## 7. RabbitMQ isolation
-
-Shared RabbitMQ не используется под bootstrap-admin identity приложением.
+## 8. RabbitMQ isolation
 
 Project resources:
 
@@ -190,24 +212,17 @@ vhost: /plan-validator
 user:  plan_validator
 ```
 
-Bootstrap выполняется host-side через `rabbitmqctl` внутри shared RabbitMQ
-container. Поэтому bootstrap-admin password не копируется в `.env`
-`plan-validator`.
+Bootstrap выполняется host-side через `rabbitmqctl` внутри shared broker.
 
-Application password берётся из:
+Application password:
 
 ```text
 PLAN_VALIDATOR_RABBITMQ_PASSWORD
 ```
 
-Bootstrap идемпотентный:
+Shared bootstrap-admin credentials в project `.env` не копируются.
 
-- существующий vhost не создаётся повторно;
-- существующему application user синхронизируется project password;
-- permissions повторно приводятся к ожидаемому состоянию;
-- после provisioning выполняется authentication check.
-
-## 8. Shared Ollama
+## 9. Shared Ollama
 
 Required analysis model:
 
@@ -215,17 +230,15 @@ Required analysis model:
 qwen3-vl:8b-instruct
 ```
 
-Bootstrap использует штатный script repository `shared_infrasktructure`:
+Модель проверяется/подтягивается через штатный shared script:
 
 ```text
 scripts/pull-ollama-model.sh
 ```
 
-Если модель уже установлена, shared script её не скачивает повторно.
+## 10. Logging
 
-## 9. Logging
-
-На все containers Этапа 2 применяется bounded Docker logging:
+Docker stdout/stderr:
 
 ```text
 driver: local
@@ -233,18 +246,23 @@ max-size: 10m
 max-file: 5
 ```
 
-Это защита stdout/stderr container logs от бесконечного роста.
-
 Application file logging:
 
 ```text
-var/log/<service>/
+var/log/<service>/<service>.log
 ```
 
-будет реализовано в Common Package после появления application processes.
-Его age/size retention уже зафиксирован в `docs/RETENTION_POLICY.md`.
+Common Package обеспечивает size rotation и age cleanup.
 
-## 10. Volumes и удаление
+Bind mount project runtime log root:
+
+```text
+./var/log:/app/var/log
+```
+
+не требует дублировать `PLAN_VALIDATOR_LOG_ROOT_DIR` в Compose.
+
+## 11. Volumes и удаление
 
 Persistent:
 
@@ -259,87 +277,81 @@ qdrant-data
 docker compose down
 ```
 
-Запрещено использовать как обычный restart:
+Не использовать как обычный restart:
 
 ```bash
 docker compose down -v
 ```
 
-поскольку `-v` удаляет persistent database/vector storage.
+`-v` удаляет persistent database/vector storage.
 
-Temporary T/PZ collections не являются отдельными Docker volumes. Их lifecycle
-будет реализован на уровне Context Service/Qdrant registry в Этапе 10.
+Temporary T/PZ/vector lifecycle реализуется service-owned cleanup use-cases, а
+не удалением Docker volumes по возрасту.
 
-## 11. Health
+## 12. Migrations
 
-PostgreSQL:
+Migration ownership принадлежит bounded context.
 
-```text
-pg_isready
-```
-
-Qdrant:
+One-shot migration containers используют profile:
 
 ```text
-/readyz
+ops
 ```
 
-Runtime project check дополнительно выполняет реальный HTTP request к Qdrant
-через published localhost port.
+Обычный `docker compose up` не должен неожиданно выполнять migrations.
 
-## 12. Автоматические проверки
+First-run/stage scripts выполняют migrations явно до readiness проверки
+соответствующего service.
 
-Исправляющий режим:
+## 13. Health
 
-```bash
-./scripts/check-infrastructure.sh
+Infrastructure:
+
+```text
+PostgreSQL -> pg_isready
+Qdrant     -> /readyz
 ```
 
-или явно:
+Application:
 
-```bash
-./scripts/check-infrastructure.sh --fix
+```text
+GET /health/live
+GET /health/ready
 ```
 
-Он может:
+Readiness проверяет только обязательные dependencies данного process.
 
-- исправить Ruff/format;
-- создать/дополнить missing project secrets;
-- поднять shared stack через его repository;
-- скачать отсутствующую required Ollama model;
-- provision RabbitMQ project vhost/user;
-- pull/start project infrastructure;
-- выполнить health checks.
-
-Неизменяющий режим:
-
-```bash
-./scripts/check-infrastructure.sh --check
-```
-
-Он ничего намеренно не исправляет и не создаёт.
-
-## 13. Безопасность
+## 14. Security
 
 - `.env` не коммитится;
-- project password не печатается;
-- shared RabbitMQ admin password не копируется;
-- databases по умолчанию публикуются только на `127.0.0.1`;
-- shared infrastructure управляется через её собственный repository;
-- Docker socket не монтируется в application containers;
-- project containers не получают host Docker control.
+- project secrets не печатаются;
+- private `.env` не копируется в Docker images;
+- service без необходимости не получает чужие secrets;
+- application containers работают non-root;
+- Docker socket не монтируется;
+- filesystem по возможности read-only;
+- capabilities dropped;
+- project databases публикуются только на localhost в development;
+- shared infrastructure управляется своим repository.
 
-## 14. Следующий этап
+## 15. Автоматические проверки
 
-После успешного Этапа 2 Common Package добавит:
+Исправляющие scripts имеют default `--fix`.
+
+CI/final validation использует:
 
 ```text
-Pydantic layered settings
-structured JSON logging
-bounded per-service file logging
-correlation IDs
-timing decorator
-common exceptions
+--check
 ```
 
-Этап 2 не дублирует эту application-level ответственность.
+`--check` не должен:
+
+```text
+форматировать source
+ставить packages
+создавать secrets
+выполнять migrations
+rebuild/restart containers
+```
+
+Он может выполнять read-only health, schema-head и runtime diagnostics.

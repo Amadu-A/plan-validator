@@ -3,8 +3,12 @@
 """FastAPI application factory и lifecycle API Gateway."""
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import (
+    AsyncIterator,
+)
+from contextlib import (
+    asynccontextmanager,
+)
 from typing import cast
 
 from fastapi import FastAPI
@@ -22,7 +26,6 @@ from api_gateway.core.settings import (
     load_gateway_settings,
 )
 from api_gateway.transport.errors import (
-    UnhandledExceptionMiddleware,
     register_error_handlers,
 )
 from api_gateway.transport.middleware import (
@@ -83,6 +86,7 @@ async def application_lifespan(
             },
         )
 
+        await container.aclose()
         reset_logging()
 
 
@@ -107,15 +111,6 @@ def create_app(
 
     app.state.container = container
 
-    # Starlette оборачивает user middleware в обратном порядке добавления.
-    # Поэтому error boundary добавляется первым, а request context вторым:
-    #
-    # RequestContextMiddleware
-    #     -> UnhandledExceptionMiddleware
-    #         -> FastAPI
-    #
-    # Так unexpected exception остаётся внутри активного correlation context.
-    app.add_middleware(UnhandledExceptionMiddleware)
     app.add_middleware(RequestContextMiddleware)
 
     register_error_handlers(app)

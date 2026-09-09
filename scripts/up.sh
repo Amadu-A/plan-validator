@@ -3,10 +3,8 @@
 #
 # Канонический first-run/recovery launcher Plan Validator.
 #
-# Последовательно подготавливает Common Package, project/shared infrastructure
-# и API Gateway, после чего запускает весь текущий Compose stack.
-#
-# Финальные проверки выполняются в immutable --check режиме.
+# Stage-specific scripts сами владеют migrations и targeted runtime checks.
+# Финальный full Compose startup не запускает hidden migration jobs.
 
 set -Eeuo pipefail
 
@@ -25,19 +23,22 @@ printf '=== Plan Validator Common Package preparation ===\n'
 printf '\n=== Plan Validator infrastructure preparation ===\n'
 ./scripts/check-infrastructure.sh --fix
 
-printf '\n=== Plan Validator API Gateway preparation ===\n'
-./scripts/check-gateway.sh --fix
+printf '\n=== Plan Validator Authentication preparation ===\n'
+./scripts/check-auth.sh --fix
 
 printf '\n=== Plan Validator full Compose startup ===\n'
 docker compose up -d --build --wait
 
-printf '\n=== Final Common Package validation ===\n'
+printf '\n=== Final Common validation ===\n'
 ./scripts/check-common.sh --check
 
 printf '\n=== Final infrastructure validation ===\n'
 ./scripts/check-infrastructure.sh --check
 
-printf '\n=== Final API Gateway validation ===\n'
+printf '\n=== Final Gateway validation ===\n'
 ./scripts/check-gateway.sh --check
+
+printf '\n=== Final Authentication validation ===\n'
+./scripts/check-auth.sh --check
 
 printf '\nPLAN VALIDATOR STARTUP PASSED\n'
