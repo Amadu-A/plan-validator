@@ -30,6 +30,9 @@ printf '\n=== Plan Validator Authentication preparation ===\n'
 printf '\n=== Plan Validator Catalog preparation ===\n'
 ./scripts/check-catalog.sh --fix
 
+printf '\n=== Plan Validator Embedding preparation ===\n'
+./scripts/check-embedding.sh --fix
+
 printf '\n=== Plan Validator full Compose startup ===\n'
 docker compose up -d --build --wait
 
@@ -47,5 +50,8 @@ printf '\n=== Final Authentication validation ===\n'
 
 printf '\n=== Final Catalog validation ===\n'
 ./scripts/check-catalog.sh --check
+
+printf '\n=== Final Embedding validation ===\n'
+./scripts/check-embedding.sh --check
 
 printf '\nPLAN VALIDATOR STARTUP PASSED\n'
