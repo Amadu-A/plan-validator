@@ -2,8 +2,7 @@
 # scripts/up.sh
 #
 # Канонический first-run/recovery launcher Plan Validator.
-#
-# Stage-specific scripts владеют migrations и targeted runtime checks.
+# Поднимает stages в dependency order и затем выполняет immutable validation.
 
 set -Eeuo pipefail
 
@@ -21,6 +20,9 @@ printf '=== Plan Validator Common Package preparation ===\n'
 
 printf '\n=== Plan Validator infrastructure preparation ===\n'
 ./scripts/check-infrastructure.sh --fix
+
+printf '\n=== Plan Validator API Gateway preparation ===\n'
+./scripts/check-gateway.sh --fix
 
 printf '\n=== Plan Validator Authentication preparation ===\n'
 ./scripts/check-auth.sh --fix

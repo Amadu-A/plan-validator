@@ -156,6 +156,32 @@ def test_rabbitmq_isolation_is_explicit() -> None:
     assert "shared_admin" not in provisioning_script
 
 
+def test_shared_checks_use_runtime_not_shared_repository_checkout() -> None:
+    """Запрещает обязательную зависимость от локального checkout shared repo."""
+    preflight = read_project_file("scripts/preflight-shared.sh")
+    provisioning = read_project_file("scripts/provision-rabbitmq.sh")
+
+    assert "com.docker.compose.service" in preflight
+    assert "com.docker.compose.service" in provisioning
+    assert "docker exec" in preflight
+    assert "docker exec" in provisioning
+    assert "SHARED_INFRA_DIR" not in preflight
+    assert "SHARED_INFRA_DIR" not in provisioning
+    assert "docker compose up" not in preflight
+
+
+def test_startup_orders_runtime_dependencies_before_consumers() -> None:
+    """Фиксирует first-run order Infrastructure -> Gateway -> Auth -> Catalog."""
+    startup = read_project_file("scripts/up.sh")
+
+    infrastructure_position = startup.index("./scripts/check-infrastructure.sh --fix")
+    gateway_position = startup.index("./scripts/check-gateway.sh --fix")
+    auth_position = startup.index("./scripts/check-auth.sh --fix")
+    catalog_position = startup.index("./scripts/check-catalog.sh --fix")
+
+    assert infrastructure_position < gateway_position < auth_position < catalog_position
+
+
 def test_bootstrap_does_not_print_generated_secrets() -> None:
     """Проверяет, что bootstrap не выводит generated secret values."""
     bootstrap_script = read_project_file("scripts/bootstrap-env.sh")
