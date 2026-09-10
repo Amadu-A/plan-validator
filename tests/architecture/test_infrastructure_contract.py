@@ -170,6 +170,17 @@ def test_shared_checks_use_runtime_not_shared_repository_checkout() -> None:
     assert "docker compose up" not in preflight
 
 
+def test_rabbitmq_checks_do_not_short_circuit_runtime_queries() -> None:
+    """Запрещает `grep -q` pipelines с rabbitmqctl при включённом pipefail."""
+    provisioning = read_project_file("scripts/provision-rabbitmq.sh")
+
+    assert "set -Eeuo pipefail" in provisioning
+    assert "rabbitmqctl_shared list_vhosts --silent" in provisioning
+    assert "rabbitmqctl_shared list_users --silent" in provisioning
+    assert "list_user_permissions" in provisioning
+    assert "| grep" not in provisioning
+
+
 def test_startup_orders_runtime_dependencies_before_consumers() -> None:
     """Фиксирует first-run order Infrastructure -> Gateway -> Auth -> Catalog."""
     startup = read_project_file("scripts/up.sh")

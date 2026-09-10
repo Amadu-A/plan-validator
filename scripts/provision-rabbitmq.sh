@@ -4,6 +4,10 @@
 # Идемпотентно создаёт project-specific RabbitMQ resources внутри уже
 # работающего shared broker. Доступ к broker выполняется напрямую через Docker
 # runtime, без зависимости от локального checkout shared infrastructure.
+#
+# Проверки resources намеренно не используют short-circuit pipelines вида
+# `rabbitmqctl | grep -q`: при `set -o pipefail` такой pipeline может дать
+# ложный отрицательный результат из-за досрочного закрытия pipe.
 
 set -Eeuo pipefail
 
@@ -103,9 +107,9 @@ discover_shared_rabbitmq() {
   container_name="$(
     docker inspect \
       --format '{{.Name}}' \
-      "${RABBITMQ_CONTAINER_ID}" \
-      | sed 's#^/##'
+      "${RABBITMQ_CONTAINER_ID}"
   )"
+  container_name="${container_name#/}"
 
   printf '[OK] shared RabbitMQ container: %s\n' "${container_name}"
 }
@@ -116,25 +120,105 @@ rabbitmqctl_shared() {
 }
 
 # Определяет наличие project virtual host.
+#
+# Return codes:
+# 0 — vhost существует;
+# 1 — vhost отсутствует;
+# 2 — RabbitMQ query завершился ошибкой.
 rabbitmq_vhost_exists() {
-  rabbitmqctl_shared list_vhosts --silent \
-    | grep -Fxq "${RABBITMQ_VHOST}"
+  local output
+  local vhost_name
+
+  if output="$(rabbitmqctl_shared list_vhosts --silent)"; then
+    :
+  else
+    printf 'ERROR: failed to query RabbitMQ virtual hosts.\n' >&2
+    return 2
+  fi
+
+  while IFS= read -r vhost_name; do
+    if [[ "${vhost_name}" == "${RABBITMQ_VHOST}" ]]; then
+      return 0
+    fi
+  done <<<"${output}"
+
+  return 1
 }
 
 # Определяет наличие project application user.
+#
+# Return codes:
+# 0 — user существует;
+# 1 — user отсутствует;
+# 2 — RabbitMQ query завершился ошибкой.
 rabbitmq_user_exists() {
-  rabbitmqctl_shared list_users --silent \
-    | awk '{print $1}' \
-    | grep -Fxq "${RABBITMQ_USER}"
+  local output
+  local username
+  local rest
+
+  if output="$(rabbitmqctl_shared list_users --silent)"; then
+    :
+  else
+    printf 'ERROR: failed to query RabbitMQ users.\n' >&2
+    return 2
+  fi
+
+  while read -r username rest; do
+    if [[ "${username}" == "${RABBITMQ_USER}" ]]; then
+      return 0
+    fi
+  done <<<"${output}"
+
+  return 1
+}
+
+# Определяет наличие permissions project user для project vhost.
+#
+# Return codes:
+# 0 — permissions существуют;
+# 1 — permissions отсутствуют;
+# 2 — RabbitMQ query завершился ошибкой.
+rabbitmq_permissions_exist() {
+  local output
+  local vhost_name
+  local rest
+
+  if output="$(
+    rabbitmqctl_shared \
+      list_user_permissions \
+      "${RABBITMQ_USER}"
+  )"; then
+    :
+  else
+    printf 'ERROR: failed to query RabbitMQ user permissions.\n' >&2
+    return 2
+  fi
+
+  while read -r vhost_name rest; do
+    if [[ "${vhost_name}" == "${RABBITMQ_VHOST}" ]]; then
+      return 0
+    fi
+  done <<<"${output}"
+
+  return 1
 }
 
 # Создаёт/синхронизирует vhost, application user и permissions.
 apply_rabbitmq_fixes() {
+  local resource_status
+
   printf '\n=== RabbitMQ project provisioning ===\n'
 
   if rabbitmq_vhost_exists; then
     printf '[OK] RabbitMQ vhost exists: %s\n' "${RABBITMQ_VHOST}"
   else
+    resource_status=$?
+
+    if (( resource_status != 1 )); then
+      printf 'ERROR: unable to determine RabbitMQ vhost state.\n' >&2
+      exit 10
+    fi
+
     rabbitmqctl_shared add_vhost "${RABBITMQ_VHOST}"
     printf '[FIX] RabbitMQ vhost created: %s\n' "${RABBITMQ_VHOST}"
   fi
@@ -148,6 +232,13 @@ apply_rabbitmq_fixes() {
     printf '[FIX] RabbitMQ application password synchronized: %s\n' \
       "${RABBITMQ_USER}"
   else
+    resource_status=$?
+
+    if (( resource_status != 1 )); then
+      printf 'ERROR: unable to determine RabbitMQ user state.\n' >&2
+      exit 11
+    fi
+
     rabbitmqctl_shared \
       add_user \
       "${RABBITMQ_USER}" \
@@ -170,21 +261,39 @@ apply_rabbitmq_fixes() {
 
 # Проверяет существование resources, authentication и vhost permissions.
 check_rabbitmq_project_resources() {
+  local resource_status
+
   printf '\n=== RabbitMQ project validation ===\n'
 
-  if ! rabbitmq_vhost_exists; then
-    printf 'ERROR: RabbitMQ vhost is missing: %s\n' "${RABBITMQ_VHOST}" >&2
-    exit 10
+  if rabbitmq_vhost_exists; then
+    printf '[OK] RabbitMQ vhost: %s\n' "${RABBITMQ_VHOST}"
+  else
+    resource_status=$?
+
+    if (( resource_status == 1 )); then
+      printf 'ERROR: RabbitMQ vhost is missing: %s\n' \
+        "${RABBITMQ_VHOST}" >&2
+      exit 12
+    fi
+
+    printf 'ERROR: RabbitMQ vhost state could not be validated.\n' >&2
+    exit 13
   fi
 
-  printf '[OK] RabbitMQ vhost: %s\n' "${RABBITMQ_VHOST}"
+  if rabbitmq_user_exists; then
+    printf '[OK] RabbitMQ user: %s\n' "${RABBITMQ_USER}"
+  else
+    resource_status=$?
 
-  if ! rabbitmq_user_exists; then
-    printf 'ERROR: RabbitMQ user is missing: %s\n' "${RABBITMQ_USER}" >&2
-    exit 11
+    if (( resource_status == 1 )); then
+      printf 'ERROR: RabbitMQ user is missing: %s\n' \
+        "${RABBITMQ_USER}" >&2
+      exit 14
+    fi
+
+    printf 'ERROR: RabbitMQ user state could not be validated.\n' >&2
+    exit 15
   fi
-
-  printf '[OK] RabbitMQ user: %s\n' "${RABBITMQ_USER}"
 
   rabbitmqctl_shared \
     authenticate_user \
@@ -194,22 +303,25 @@ check_rabbitmq_project_resources() {
 
   printf '[OK] RabbitMQ authentication.\n'
 
-  if ! rabbitmqctl_shared list_user_permissions "${RABBITMQ_USER}" \
-    | grep -Fq "${RABBITMQ_VHOST}"; then
-    printf 'ERROR: RabbitMQ permissions are missing for vhost: %s\n' \
-      "${RABBITMQ_VHOST}" >&2
-    exit 12
-  fi
+  if rabbitmq_permissions_exist; then
+    printf '[OK] RabbitMQ vhost permissions.\n'
+  else
+    resource_status=$?
 
-  printf '[OK] RabbitMQ vhost permissions.\n'
+    if (( resource_status == 1 )); then
+      printf 'ERROR: RabbitMQ permissions are missing for vhost: %s\n' \
+        "${RABBITMQ_VHOST}" >&2
+      exit 16
+    fi
+
+    printf 'ERROR: RabbitMQ permissions state could not be validated.\n' >&2
+    exit 17
+  fi
 }
 
 validate_mode
 
-require_command awk
 require_command docker
-require_command grep
-require_command sed
 
 load_project_environment
 discover_shared_rabbitmq
