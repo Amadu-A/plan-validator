@@ -4,16 +4,12 @@
 
 from fastapi import APIRouter
 
-from api_gateway.transport.routers.auth import (
-    router as auth_router,
-)
-from api_gateway.transport.routers.system import (
-    router as system_router,
-)
+from api_gateway.transport.routers.auth import router as auth_router
+from api_gateway.transport.routers.catalog import router as catalog_router
+from api_gateway.transport.routers.system import router as system_router
 
-router = APIRouter(
-    prefix="/api/v1",
-)
+router = APIRouter(prefix="/api/v1")
 
 router.include_router(auth_router)
+router.include_router(catalog_router)
 router.include_router(system_router)

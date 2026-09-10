@@ -3,8 +3,7 @@
 #
 # Канонический first-run/recovery launcher Plan Validator.
 #
-# Stage-specific scripts сами владеют migrations и targeted runtime checks.
-# Финальный full Compose startup не запускает hidden migration jobs.
+# Stage-specific scripts владеют migrations и targeted runtime checks.
 
 set -Eeuo pipefail
 
@@ -26,6 +25,9 @@ printf '\n=== Plan Validator infrastructure preparation ===\n'
 printf '\n=== Plan Validator Authentication preparation ===\n'
 ./scripts/check-auth.sh --fix
 
+printf '\n=== Plan Validator Catalog preparation ===\n'
+./scripts/check-catalog.sh --fix
+
 printf '\n=== Plan Validator full Compose startup ===\n'
 docker compose up -d --build --wait
 
@@ -40,5 +42,8 @@ printf '\n=== Final Gateway validation ===\n'
 
 printf '\n=== Final Authentication validation ===\n'
 ./scripts/check-auth.sh --check
+
+printf '\n=== Final Catalog validation ===\n'
+./scripts/check-catalog.sh --check
 
 printf '\nPLAN VALIDATOR STARTUP PASSED\n'

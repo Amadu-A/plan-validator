@@ -4,41 +4,23 @@
 
 from typing import Literal
 
-from plan_validator_common.settings import (
-    CommonSettings,
-)
-from pydantic import (
-    BaseModel,
-    Field,
-)
+from plan_validator_common.settings import CommonSettings
+from pydantic import BaseModel, Field
 
 
 class GatewayHttpSettings(BaseModel):
     """Настройки HTTP server API Gateway."""
 
-    host: str = Field(
-        default="0.0.0.0",
-        min_length=1,
-    )
-    port: int = Field(
-        default=8000,
-        ge=1,
-        le=65535,
-    )
+    host: str = Field(default="0.0.0.0", min_length=1)
+    port: int = Field(default=8000, ge=1, le=65535)
     docs_enabled: bool = True
 
 
 class InternalHttpSettings(BaseModel):
-    """Настройки outbound HTTP clients для internal service calls."""
+    """Настройки outbound HTTP clients internal service calls."""
 
-    connect_timeout_seconds: float = Field(
-        default=3.0,
-        gt=0,
-    )
-    read_timeout_seconds: float = Field(
-        default=30.0,
-        gt=0,
-    )
+    connect_timeout_seconds: float = Field(default=3.0, gt=0)
+    read_timeout_seconds: float = Field(default=30.0, gt=0)
 
 
 class AuthServiceSettings(BaseModel):
@@ -46,6 +28,15 @@ class AuthServiceSettings(BaseModel):
 
     base_url: str = Field(
         default="http://auth-service:8000",
+        min_length=1,
+    )
+
+
+class CatalogServiceSettings(BaseModel):
+    """Docker-DNS endpoint trusted Catalog Service."""
+
+    base_url: str = Field(
+        default="http://catalog-service:8000",
         min_length=1,
     )
 
@@ -71,7 +62,7 @@ class SessionCookieSettings(BaseModel):
 
 
 class GatewaySettings(CommonSettings):
-    """Объединяет общие и service-specific настройки API Gateway."""
+    """Объединяет common и service-specific Gateway settings."""
 
     service_name: str = Field(
         default="api-gateway",
@@ -94,6 +85,9 @@ class GatewaySettings(CommonSettings):
     )
     auth_service: AuthServiceSettings = Field(
         default_factory=AuthServiceSettings,
+    )
+    catalog_service: CatalogServiceSettings = Field(
+        default_factory=CatalogServiceSettings,
     )
     session_cookie: SessionCookieSettings = Field(
         default_factory=SessionCookieSettings,

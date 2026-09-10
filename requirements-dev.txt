@@ -3,12 +3,12 @@
 # Root-level development dependencies Plan Validator.
 #
 # Editable packages используют текущий source tree.
-# httpx2 нужен новому Starlette TestClient и не заменяет пока production HTTPX
-# client Gateway.
+# httpx2 нужен новому Starlette TestClient и не заменяет production HTTPX.
 
 -e ./packages/common
 -e ./services/api-gateway
 -e ./services/auth-service
+-e ./services/catalog-service
 
 httpx2==2.12.0
 pytest==9.1.1
