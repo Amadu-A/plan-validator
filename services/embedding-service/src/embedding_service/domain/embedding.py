@@ -1,6 +1,6 @@
 # services/embedding-service/src/embedding_service/domain/embedding.py
 
-"""Domain types и invariants text embedding операции."""
+"""Domain types и invariants text embedding операций."""
 
 from dataclasses import dataclass
 from uuid import UUID
@@ -56,4 +56,15 @@ class EmbeddingResult:
     model: str
     dimension: int
     vector: tuple[float, ...]
+    telemetry: EmbeddingTelemetry
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingBatchResult:
+    """Результат batch text embedding внутри одного model-load lifecycle."""
+
+    job_id: UUID
+    model: str
+    dimension: int
+    vectors: tuple[tuple[float, ...], ...]
     telemetry: EmbeddingTelemetry

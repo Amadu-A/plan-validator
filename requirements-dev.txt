@@ -11,6 +11,7 @@
 -e ./services/auth-service
 -e ./services/catalog-service
 -e ./services/embedding-service
+-e ./services/retrieval-service
 
 httpx2==2.12.0
 pytest==9.1.1

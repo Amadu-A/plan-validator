@@ -15,6 +15,7 @@ from uuid import UUID
 from embedding_service.application.ports.model_cache import ModelCacheProbe
 from embedding_service.core.settings import EmbeddingModelSettings
 from embedding_service.domain.embedding import (
+    EmbeddingBatchResult,
     EmbeddingResult,
     EmbeddingTelemetry,
     EmbeddingTextInput,
@@ -57,12 +58,50 @@ class QwenEmbeddingRuntime:
         job_id: UUID,
         item: EmbeddingTextInput,
     ) -> EmbeddingResult:
-        """Выполняет ровно одну serialized GPU operation вне event loop."""
-        async with self._semaphore:
-            return await asyncio.to_thread(self._embed_text_sync, job_id, item)
+        """Выполняет одну serialized GPU operation вне event loop."""
+        batch = await self.embed_texts(job_id=job_id, items=(item,))
 
-    def _embed_text_sync(self, job_id: UUID, item: EmbeddingTextInput) -> EmbeddingResult:
-        """Выполняет lease → admission → load → inference → unload lifecycle."""
+        return EmbeddingResult(
+            job_id=batch.job_id,
+            model=batch.model,
+            dimension=batch.dimension,
+            vector=batch.vectors[0],
+            telemetry=batch.telemetry,
+        )
+
+    async def embed_texts(
+        self,
+        *,
+        job_id: UUID,
+        items: tuple[EmbeddingTextInput, ...],
+    ) -> EmbeddingBatchResult:
+        """Выполняет batch inference за один lease/model-load lifecycle."""
+        async with self._semaphore:
+            return await asyncio.to_thread(self._embed_texts_sync, job_id, items)
+
+    def _embed_texts_sync(
+        self,
+        job_id: UUID,
+        items: tuple[EmbeddingTextInput, ...],
+    ) -> EmbeddingBatchResult:
+        """Выполняет lease → admission → load → batch infer → unload lifecycle."""
+        if not items:
+            raise EmbeddingModelExecutionError("Embedding runtime received empty batch")
+
+        if len(items) > self._settings.max_job_items:
+            raise EmbeddingModelExecutionError(
+                f"Embedding runtime batch exceeds {self._settings.max_job_items} items"
+            )
+
+        instructions = {
+            item.instruction.strip() if item.instruction is not None else None for item in items
+        }
+
+        if len(instructions) != 1:
+            raise EmbeddingModelExecutionError(
+                "All texts in one embedding GPU job must use the same instruction"
+            )
+
         started_at = time.perf_counter()
         snapshot = self._cache_probe.resolve_snapshot()
 
@@ -94,6 +133,7 @@ class QwenEmbeddingRuntime:
                     "event": "embedding_model_load_started",
                     "model": self._settings.name,
                     "dimension": self._settings.output_dimension,
+                    "item_count": len(items),
                     "available_ram_bytes": available_ram_bytes,
                     "free_vram_bytes": free_vram_bytes,
                     "total_vram_bytes": total_vram_bytes,
@@ -115,26 +155,32 @@ class QwenEmbeddingRuntime:
 
             encode_started_at = time.perf_counter()
             encode_kwargs: dict[str, object] = {
-                "batch_size": 1,
+                "batch_size": self._settings.max_batch_size,
                 "convert_to_numpy": True,
                 "normalize_embeddings": True,
                 "show_progress_bar": False,
                 "truncate_dim": self._settings.output_dimension,
             }
+            instruction = next(iter(instructions))
 
-            if item.instruction is not None and item.instruction.strip():
-                encode_kwargs["prompt"] = item.instruction.strip()
+            if instruction:
+                encode_kwargs["prompt"] = instruction
 
-            embeddings = model.encode([item.text.strip()], **encode_kwargs)
+            embeddings = model.encode(
+                [item.text.strip() for item in items],
+                **encode_kwargs,
+            )
             _cuda_synchronize(torch)
             encode_ms = _duration_ms(encode_started_at)
 
-            if len(embeddings) != 1:
+            if len(embeddings) != len(items):
                 raise EmbeddingModelExecutionError("Embedding runtime returned invalid batch size")
 
-            vector = tuple(float(value) for value in embeddings[0].tolist())
+            vectors = tuple(
+                tuple(float(value) for value in embedding.tolist()) for embedding in embeddings
+            )
 
-            if len(vector) != self._settings.output_dimension:
+            if any(len(vector) != self._settings.output_dimension for vector in vectors):
                 raise EmbeddingModelExecutionError(
                     "Embedding dimension does not match configured dimension"
                 )
@@ -155,7 +201,8 @@ class QwenEmbeddingRuntime:
                     "event": "embedding_completed",
                     "job_id": str(job_id),
                     "model": self._settings.name,
-                    "dimension": len(vector),
+                    "dimension": self._settings.output_dimension,
+                    "item_count": len(vectors),
                     "model_load_ms": telemetry.model_load_ms,
                     "encode_ms": telemetry.encode_ms,
                     "total_ms": telemetry.total_ms,
@@ -163,11 +210,11 @@ class QwenEmbeddingRuntime:
                 },
             )
 
-            return EmbeddingResult(
+            return EmbeddingBatchResult(
                 job_id=job_id,
                 model=self._settings.name,
-                dimension=len(vector),
-                vector=vector,
+                dimension=self._settings.output_dimension,
+                vectors=vectors,
                 telemetry=telemetry,
             )
         except EmbeddingRuntimeError:

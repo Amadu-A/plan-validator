@@ -21,6 +21,7 @@ class EmbeddingModelSettings(BaseModel):
     max_input_tokens: int = Field(default=8192, ge=512, le=32768)
     max_text_chars: int = Field(default=60000, ge=1, le=500000)
     max_batch_size: int = Field(default=1, ge=1, le=8)
+    max_job_items: int = Field(default=256, ge=1, le=1024)
     min_free_ram_gib: float = Field(default=20.0, ge=1.0, le=1024.0)
     min_free_vram_gib: float = Field(default=18.0, ge=1.0, le=128.0)
     admission_wait_timeout_seconds: float = Field(default=1800.0, gt=0, le=7200)

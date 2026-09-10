@@ -3,21 +3,29 @@
 """RabbitMQ consumer dedicated GPU embedding queue."""
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 
 from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage
 from plan_validator_common.observability import configure_logging, scoped_log_context
+from plan_validator_common.vector_codec import FLOAT32_BASE64_ENCODING, encode_float32_vectors
 from pydantic import ValidationError
 
-from embedding_service.application.use_cases.embed_text import EmbedTextUseCase
+from embedding_service.application.use_cases.embed_text import (
+    EmbedTextsUseCase,
+    EmbedTextUseCase,
+)
 from embedding_service.core.settings import EmbeddingWorkerSettings, load_embedding_worker_settings
+from embedding_service.domain.embedding import EmbeddingTelemetry
 from embedding_service.domain.exceptions import EmbeddingRuntimeError
 from embedding_service.infrastructure.gpu_lease import CrossProcessFileGpuLease
 from embedding_service.infrastructure.gpu_runtime import QwenEmbeddingRuntime
 from embedding_service.infrastructure.messaging.rabbitmq import connect_embedding_broker
 from embedding_service.infrastructure.messaging.schemas import (
+    EmbeddingBatchJobRequest,
+    EmbeddingBatchJobSuccess,
     EmbeddingJobFailure,
     EmbeddingJobRequest,
     EmbeddingJobSuccess,
@@ -31,42 +39,61 @@ Handler = Callable[[AbstractIncomingMessage], Awaitable[None]]
 
 def build_message_handler(
     *,
-    use_case: EmbedTextUseCase,
+    single_use_case: EmbedTextUseCase,
+    batch_use_case: EmbedTextsUseCase,
     channel: AbstractChannel,
 ) -> Handler:
-    """Создаёт stateless consumer handler поверх application use-case."""
+    """Создаёт stateless consumer handler single/batch GPU contracts."""
 
     async def handle(message: AbstractIncomingMessage) -> None:
         """Валидирует request, выполняет GPU job и отвечает через reply queue."""
-        request: EmbeddingJobRequest | None = None
+        request: EmbeddingJobRequest | EmbeddingBatchJobRequest | None = None
 
         try:
-            request = EmbeddingJobRequest.model_validate_json(message.body)
+            raw_payload = json.loads(message.body.decode("utf-8"))
+
+            if isinstance(raw_payload, dict) and "texts" in raw_payload:
+                request = EmbeddingBatchJobRequest.model_validate(raw_payload)
+            else:
+                request = EmbeddingJobRequest.model_validate(raw_payload)
+
             correlation_id = request.correlation_id
             job_id = str(request.job_id)
 
             with scoped_log_context(correlation_id=correlation_id, job_id=job_id):
-                result = await use_case.execute(
-                    job_id=request.job_id,
-                    text=request.text,
-                    instruction=request.instruction,
-                )
-
-                response = EmbeddingJobSuccess(
-                    job_id=result.job_id,
-                    model=result.model,
-                    dimension=result.dimension,
-                    vector=list(result.vector),
-                    telemetry=EmbeddingTelemetryMessage(
-                        available_ram_bytes=result.telemetry.available_ram_bytes,
-                        free_vram_before_bytes=result.telemetry.free_vram_before_bytes,
-                        total_vram_bytes=result.telemetry.total_vram_bytes,
-                        model_load_ms=result.telemetry.model_load_ms,
-                        encode_ms=result.telemetry.encode_ms,
-                        total_ms=result.telemetry.total_ms,
-                        peak_allocated_vram_bytes=(result.telemetry.peak_allocated_vram_bytes),
-                    ),
-                )
+                if isinstance(request, EmbeddingBatchJobRequest):
+                    batch_result = await batch_use_case.execute(
+                        job_id=request.job_id,
+                        texts=request.texts,
+                        instruction=request.instruction,
+                    )
+                    response: EmbeddingJobSuccess | EmbeddingBatchJobSuccess = (
+                        EmbeddingBatchJobSuccess(
+                            job_id=batch_result.job_id,
+                            model=batch_result.model,
+                            dimension=batch_result.dimension,
+                            vector_encoding=FLOAT32_BASE64_ENCODING,
+                            vector_count=len(batch_result.vectors),
+                            vectors_b64=encode_float32_vectors(
+                                batch_result.vectors,
+                                dimension=batch_result.dimension,
+                            ),
+                            telemetry=_telemetry_message(batch_result.telemetry),
+                        )
+                    )
+                else:
+                    result = await single_use_case.execute(
+                        job_id=request.job_id,
+                        text=request.text,
+                        instruction=request.instruction,
+                    )
+                    response = EmbeddingJobSuccess(
+                        job_id=result.job_id,
+                        model=result.model,
+                        dimension=result.dimension,
+                        vector=list(result.vector),
+                        telemetry=_telemetry_message(result.telemetry),
+                    )
 
                 await _publish_response(
                     channel=channel,
@@ -74,7 +101,7 @@ def build_message_handler(
                     payload=response.model_dump_json(),
                 )
                 await message.ack()
-        except (ValidationError, EmbeddingRuntimeError, ValueError) as exc:
+        except (ValidationError, EmbeddingRuntimeError, ValueError, json.JSONDecodeError) as exc:
             failure = EmbeddingJobFailure(
                 job_id=request.job_id if request is not None else None,
                 error_type=type(exc).__name__,
@@ -110,6 +137,19 @@ def build_message_handler(
     return handle
 
 
+def _telemetry_message(telemetry: EmbeddingTelemetry) -> EmbeddingTelemetryMessage:
+    """Преобразует domain telemetry в transport-neutral RPC schema."""
+    return EmbeddingTelemetryMessage(
+        available_ram_bytes=telemetry.available_ram_bytes,
+        free_vram_before_bytes=telemetry.free_vram_before_bytes,
+        total_vram_bytes=telemetry.total_vram_bytes,
+        model_load_ms=telemetry.model_load_ms,
+        encode_ms=telemetry.encode_ms,
+        total_ms=telemetry.total_ms,
+        peak_allocated_vram_bytes=telemetry.peak_allocated_vram_bytes,
+    )
+
+
 async def _publish_response(
     *,
     channel: AbstractChannel,
@@ -133,14 +173,16 @@ async def _publish_response(
 
 def _safe_error_message(error: Exception) -> str:
     """Не позволяет validation error вернуть исходный document text."""
-    if isinstance(error, ValidationError):
+    if isinstance(error, (ValidationError, json.JSONDecodeError)):
         return "Embedding job payload is invalid"
 
     return str(error)[:1000]
 
 
-def build_use_case(settings: EmbeddingWorkerSettings) -> EmbedTextUseCase:
-    """Собирает concrete GPU runtime composition worker-процесса."""
+def build_use_cases(
+    settings: EmbeddingWorkerSettings,
+) -> tuple[EmbedTextUseCase, EmbedTextsUseCase]:
+    """Собирает single/batch use-cases поверх одного serialized GPU runtime."""
     cache_probe = HuggingFaceModelCacheProbe(
         hf_home=settings.embedding_model.hf_home,
         model_name=settings.embedding_model.name,
@@ -155,15 +197,22 @@ def build_use_case(settings: EmbeddingWorkerSettings) -> EmbedTextUseCase:
         gpu_lease=lease,
     )
 
-    return EmbedTextUseCase(
-        runtime=runtime,
-        max_text_chars=settings.embedding_model.max_text_chars,
+    return (
+        EmbedTextUseCase(
+            runtime=runtime,
+            max_text_chars=settings.embedding_model.max_text_chars,
+        ),
+        EmbedTextsUseCase(
+            runtime=runtime,
+            max_text_chars=settings.embedding_model.max_text_chars,
+            max_job_items=settings.embedding_model.max_job_items,
+        ),
     )
 
 
 async def run_worker(settings: EmbeddingWorkerSettings) -> None:
     """Подключается к shared broker и consume'ит ровно одну GPU queue."""
-    use_case = build_use_case(settings)
+    single_use_case, batch_use_case = build_use_cases(settings)
     connection = await connect_embedding_broker(settings)
 
     async with connection:
@@ -175,7 +224,11 @@ async def run_worker(settings: EmbeddingWorkerSettings) -> None:
             auto_delete=False,
         )
         await queue.consume(
-            build_message_handler(use_case=use_case, channel=channel),
+            build_message_handler(
+                single_use_case=single_use_case,
+                batch_use_case=batch_use_case,
+                channel=channel,
+            ),
             no_ack=False,
         )
 
