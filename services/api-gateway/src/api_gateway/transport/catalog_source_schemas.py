@@ -15,7 +15,7 @@ from api_gateway.application.catalog_sources import (
 
 
 class ManagedSourceResponse(BaseModel):
-    """Public safe managed source metadata."""
+    """Public safe managed source metadata со stable content URL."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -27,13 +27,23 @@ class ManagedSourceResponse(BaseModel):
     size_bytes: int
     sha256: str
     lifecycle: CatalogSourceLifecycle
+    content_url: str
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
 
     @classmethod
-    def from_dto(cls, source: CatalogManagedSource) -> "ManagedSourceResponse":
+    def from_dto(
+        cls,
+        source: CatalogManagedSource,
+    ) -> "ManagedSourceResponse":
         """Преобразует Gateway DTO в public response."""
+        resource = (
+            "normative-documents"
+            if source.kind is CatalogSourceKind.NORMATIVE
+            else "user-documents"
+        )
+
         return cls(
             id=source.id,
             section_id=source.section_id,
@@ -43,6 +53,7 @@ class ManagedSourceResponse(BaseModel):
             size_bytes=source.size_bytes,
             sha256=source.sha256,
             lifecycle=source.lifecycle,
+            content_url=(f"/api/v1/catalog/{resource}/{source.id}/content"),
             created_at=source.created_at,
             updated_at=source.updated_at,
             deleted_at=source.deleted_at,

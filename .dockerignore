@@ -29,6 +29,7 @@ var
 data/runtime
 data/tmp
 data/uploads
+data/catalog
 data/results
 logs
 artifacts

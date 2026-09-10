@@ -25,7 +25,8 @@ class CatalogDatabaseSettings(BaseModel):
 class CatalogSourceStorageSettings(BaseModel):
     """Safe persistent storage settings managed N/U sources."""
 
-    root_dir: Path = Path("data/uploads/catalog")
+    root_dir: Path = Path("data/catalog")
+
     max_upload_bytes: int = Field(
         default=64 * 1024 * 1024,
         gt=0,
@@ -41,13 +42,17 @@ class CatalogSettings(CommonSettings):
     postgres_password: SecretStr
 
     catalog_database: CatalogDatabaseSettings = Field(default_factory=CatalogDatabaseSettings)
+
     catalog_source_storage: CatalogSourceStorageSettings = Field(
         default_factory=CatalogSourceStorageSettings
     )
 
     @field_validator("postgres_password")
     @classmethod
-    def validate_postgres_password(cls, value: SecretStr) -> SecretStr:
+    def validate_postgres_password(
+        cls,
+        value: SecretStr,
+    ) -> SecretStr:
         """Запрещает `.env.example` placeholder как реальный password."""
         secret = value.get_secret_value()
 
@@ -63,8 +68,16 @@ class CatalogSettings(CommonSettings):
             self.postgres_password.get_secret_value(),
             safe="",
         )
-        user = quote(self.catalog_database.user, safe="")
-        database = quote(self.catalog_database.database, safe="")
+
+        user = quote(
+            self.catalog_database.user,
+            safe="",
+        )
+
+        database = quote(
+            self.catalog_database.database,
+            safe="",
+        )
 
         return (
             "postgresql+psycopg://"

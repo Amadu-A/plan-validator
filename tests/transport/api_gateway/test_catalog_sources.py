@@ -214,6 +214,9 @@ def test_managed_sources_require_auth_and_support_content(
         assert uploaded.status_code == 201
         assert uploaded.json()["kind"] == "N"
         assert uploaded.json()["original_name"] == "СП 1.pdf"
+        assert uploaded.json()["content_url"] == (
+            f"/api/v1/catalog/normative-documents/{uploaded.json()['id']}/content"
+        )
         assert "storage_key" not in uploaded.json()
 
         source_id = uploaded.json()["id"]

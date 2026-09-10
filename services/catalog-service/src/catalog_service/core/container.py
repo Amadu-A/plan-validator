@@ -61,12 +61,18 @@ class CatalogContainer:
         await self.engine.dispose()
 
 
-def build_container(settings: CatalogSettings) -> CatalogContainer:
+def build_container(
+    settings: CatalogSettings,
+) -> CatalogContainer:
     """Собирает concrete infrastructure adapters Catalog Service."""
     engine = create_catalog_engine(settings)
+
     session_factory = create_catalog_session_factory(engine)
+
     uow_factory = SqlAlchemyCatalogUnitOfWorkFactory(session_factory)
+
     clock = SystemClock()
+
     source_storage = LocalSourceStorage(settings.catalog_source_storage.root_dir)
 
     return CatalogContainer(
@@ -76,12 +82,17 @@ def build_container(settings: CatalogSettings) -> CatalogContainer:
         create_section=CreateSectionUseCase(
             uow_factory=uow_factory,
             clock=clock,
+            storage=source_storage,
         ),
         update_section=UpdateSectionUseCase(
             uow_factory=uow_factory,
             clock=clock,
+            storage=source_storage,
         ),
-        delete_section=DeleteSectionUseCase(uow_factory),
+        delete_section=DeleteSectionUseCase(
+            uow_factory,
+            storage=source_storage,
+        ),
         get_system_prompt=GetSystemPromptUseCase(uow_factory),
         save_system_prompt=SaveSystemPromptUseCase(
             uow_factory=uow_factory,
@@ -91,7 +102,7 @@ def build_container(settings: CatalogSettings) -> CatalogContainer:
         upload_managed_source=UploadManagedSourceUseCase(
             uow_factory=uow_factory,
             storage=source_storage,
-            max_upload_bytes=settings.catalog_source_storage.max_upload_bytes,
+            max_upload_bytes=(settings.catalog_source_storage.max_upload_bytes),
             clock=clock,
         ),
         get_managed_source=GetManagedSourceUseCase(uow_factory),

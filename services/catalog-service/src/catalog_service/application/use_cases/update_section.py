@@ -7,7 +7,12 @@ from uuid import UUID
 from plan_validator_common.observability import log_execution_time
 
 from catalog_service.application.ports.clock import Clock
+from catalog_service.application.ports.source_storage import SourceStorage
 from catalog_service.application.ports.unit_of_work import CatalogUnitOfWorkFactory
+from catalog_service.application.source_tree import (
+    restore_user_source_tree_best_effort,
+    synchronize_user_source_tree,
+)
 from catalog_service.domain.exceptions import (
     InvalidSectionHierarchyError,
     SectionNotFoundError,
@@ -16,17 +21,19 @@ from catalog_service.domain.section import Section, normalize_section_title
 
 
 class UpdateSectionUseCase:
-    """Обновляет section и защищает дерево от циклов."""
+    """Обновляет section, hierarchy и materialized filesystem tree."""
 
     def __init__(
         self,
         *,
         uow_factory: CatalogUnitOfWorkFactory,
         clock: Clock,
+        storage: SourceStorage | None = None,
     ) -> None:
         """Сохраняет application dependencies."""
         self._uow_factory = uow_factory
         self._clock = clock
+        self._storage = storage
 
     @log_execution_time("catalog.update_section")
     async def execute(
@@ -71,8 +78,42 @@ class UpdateSectionUseCase:
                 updated_at=self._clock.now(),
             )
 
-            await uow.sections.update(updated)
-            await uow.commit()
+            active_sources = (
+                await uow.sources.list_active_for_user(
+                    user_id=user_id,
+                )
+                if self._storage is not None
+                else []
+            )
+
+            updated_sections = [
+                updated if section.id == section_id else section for section in all_sections
+            ]
+
+            tree_synchronized = False
+
+            if self._storage is not None:
+                await synchronize_user_source_tree(
+                    storage=self._storage,
+                    user_id=user_id,
+                    sections=updated_sections,
+                    sources=active_sources,
+                )
+                tree_synchronized = True
+
+            try:
+                await uow.sections.update(updated)
+                await uow.commit()
+            except Exception:
+                if self._storage is not None and tree_synchronized:
+                    await restore_user_source_tree_best_effort(
+                        storage=self._storage,
+                        user_id=user_id,
+                        sections=all_sections,
+                        sources=active_sources,
+                    )
+
+                raise
 
         return updated
 
@@ -108,4 +149,5 @@ class UpdateSectionUseCase:
             visited.add(current_id)
 
             current = by_id.get(current_id)
+
             current_id = current.parent_id if current is not None else None

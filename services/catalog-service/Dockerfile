@@ -27,7 +27,7 @@ RUN python -m pip install \
     --no-cache-dir \
     ./packages/common \
     ./services/catalog-service \
-    && mkdir -p /app/data/uploads/catalog \
+    && mkdir -p /app/data/catalog \
     && chown -R 1000:1000 /app/data
 
 USER 1000:1000

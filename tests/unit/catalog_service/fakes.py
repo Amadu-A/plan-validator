@@ -217,6 +217,18 @@ class InMemoryManagedSourceRepository:
         for source_id in to_delete:
             self._storage.pop(source_id, None)
 
+    async def list_active_for_user(
+        self,
+        *,
+        user_id: UUID,
+    ) -> list[ManagedSource]:
+        """Возвращает active sources пользователя."""
+        return [
+            source
+            for source in self._storage.values()
+            if (source.user_id == user_id and source.lifecycle is SourceLifecycle.ACTIVE)
+        ]
+
     def _subtree_ids(
         self,
         *,

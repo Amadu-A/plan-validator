@@ -20,6 +20,13 @@ class ManagedSourceRepository(Protocol):
     ) -> list[ManagedSource]:
         """Возвращает не удалённые sources одной section и kind."""
 
+    async def list_active_for_user(
+        self,
+        *,
+        user_id: UUID,
+    ) -> list[ManagedSource]:
+        """Возвращает active sources для materialized filesystem tree."""
+
     async def get_for_user_kind(
         self,
         *,

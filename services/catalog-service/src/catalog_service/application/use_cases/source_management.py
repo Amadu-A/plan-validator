@@ -19,6 +19,10 @@ from catalog_service.application.ports.source_storage import (
     SourceStorageError,
 )
 from catalog_service.application.ports.unit_of_work import CatalogUnitOfWorkFactory
+from catalog_service.application.source_tree import (
+    restore_user_source_tree_best_effort,
+    synchronize_user_source_tree,
+)
 from catalog_service.domain.exceptions import (
     InvalidManagedSourceUploadError,
     ManagedSourceLifecycleConflictError,
@@ -26,6 +30,7 @@ from catalog_service.domain.exceptions import (
     ManagedSourceStorageUnavailableError,
     SectionNotFoundError,
 )
+from catalog_service.domain.section import Section
 from catalog_service.domain.source import (
     SOURCE_DELETE_REQUESTED_EVENT,
     SOURCE_UPLOADED_EVENT,
@@ -60,7 +65,9 @@ class ManagedSourceContent:
     content: bytes
 
 
-def normalize_source_name(original_name: str) -> tuple[str, str, str]:
+def normalize_source_name(
+    original_name: str,
+) -> tuple[str, str, str]:
     """Нормализует filename и возвращает имя, extension и canonical MIME."""
     normalized = original_name.replace("\\", "/").rsplit("/", maxsplit=1)[-1].strip()
 
@@ -82,7 +89,11 @@ def normalize_source_name(original_name: str) -> tuple[str, str, str]:
             "Only PDF, DOC and DOCX managed sources are supported"
         )
 
-    return normalized, suffix, SUPPORTED_MIME_BY_EXTENSION[suffix]
+    return (
+        normalized,
+        suffix,
+        SUPPORTED_MIME_BY_EXTENSION[suffix],
+    )
 
 
 def validate_source_content(
@@ -139,23 +150,6 @@ def _validate_docx(content: bytes) -> None:
         )
 
 
-async def _require_section(
-    *,
-    uow_factory: CatalogUnitOfWorkFactory,
-    user_id: UUID,
-    section_id: UUID,
-) -> None:
-    """Проверяет, что section существует внутри ownership scope пользователя."""
-    async with uow_factory() as uow:
-        section = await uow.sections.get_for_user(
-            user_id=user_id,
-            section_id=section_id,
-        )
-
-    if section is None:
-        raise SectionNotFoundError("Section was not found")
-
-
 async def _get_source(
     *,
     uow_factory: CatalogUnitOfWorkFactory,
@@ -177,10 +171,29 @@ async def _get_source(
     return source
 
 
+async def _load_user_tree_state(
+    *,
+    uow_factory: CatalogUnitOfWorkFactory,
+    user_id: UUID,
+) -> tuple[list[Section], list[ManagedSource]]:
+    """Возвращает sections и только active sources для visible tree."""
+    async with uow_factory() as uow:
+        sections = await uow.sections.list_for_user(user_id)
+
+        sources = await uow.sources.list_active_for_user(
+            user_id=user_id,
+        )
+
+    return sections, sources
+
+
 class ListManagedSourcesUseCase:
     """Возвращает managed sources выбранного типа внутри section."""
 
-    def __init__(self, uow_factory: CatalogUnitOfWorkFactory) -> None:
+    def __init__(
+        self,
+        uow_factory: CatalogUnitOfWorkFactory,
+    ) -> None:
         """Сохраняет Unit of Work factory."""
         self._uow_factory = uow_factory
 
@@ -210,7 +223,7 @@ class ListManagedSourcesUseCase:
 
 
 class UploadManagedSourceUseCase:
-    """Сохраняет physical content и атомарно регистрирует metadata/outbox."""
+    """Сохраняет original, visible mirror, metadata и outbox event."""
 
     def __init__(
         self,
@@ -238,8 +251,12 @@ class UploadManagedSourceUseCase:
         original_name: str,
         content: bytes,
     ) -> ManagedSource:
-        """Валидирует file, сохраняет его и создаёт durable upload event."""
-        normalized_name, extension, mime_type = normalize_source_name(original_name)
+        """Валидирует file и синхронизирует canonical/visible storage."""
+        (
+            normalized_name,
+            extension,
+            mime_type,
+        ) = normalize_source_name(original_name)
 
         validate_source_content(
             content,
@@ -247,16 +264,18 @@ class UploadManagedSourceUseCase:
             max_upload_bytes=self._max_upload_bytes,
         )
 
-        await _require_section(
+        sections, active_sources = await _load_user_tree_state(
             uow_factory=self._uow_factory,
             user_id=user_id,
-            section_id=section_id,
         )
+
+        if not any(section.id == section_id for section in sections):
+            raise SectionNotFoundError("Section was not found")
 
         source_id = self._identifier_factory()
         created_at = self._clock.now()
 
-        storage_key = f"{user_id}/{kind.value}/{section_id}/{source_id}{extension}"
+        storage_key = f".objects/{user_id}/{kind.value}/{source_id}{extension}"
 
         source = ManagedSource(
             id=source_id,
@@ -285,6 +304,27 @@ class UploadManagedSourceUseCase:
                 "Managed source storage is temporarily unavailable"
             ) from exc
 
+        try:
+            await synchronize_user_source_tree(
+                storage=self._storage,
+                user_id=user_id,
+                sections=sections,
+                sources=[*active_sources, source],
+            )
+        except Exception:
+            with suppress(SourceStorageError):
+                await self._storage.delete(
+                    storage_key=storage_key,
+                )
+
+            await restore_user_source_tree_best_effort(
+                storage=self._storage,
+                user_id=user_id,
+                sections=sections,
+                sources=active_sources,
+            )
+            raise
+
         message = SourceOutboxMessage(
             id=self._identifier_factory(),
             source_id=source.id,
@@ -311,7 +351,16 @@ class UploadManagedSourceUseCase:
                 await uow.commit()
         except Exception:
             with suppress(SourceStorageError):
-                await self._storage.delete(storage_key=storage_key)
+                await self._storage.delete(
+                    storage_key=storage_key,
+                )
+
+            await restore_user_source_tree_best_effort(
+                storage=self._storage,
+                user_id=user_id,
+                sections=sections,
+                sources=active_sources,
+            )
 
             raise
 
@@ -321,7 +370,10 @@ class UploadManagedSourceUseCase:
 class GetManagedSourceUseCase:
     """Возвращает metadata одного managed source."""
 
-    def __init__(self, uow_factory: CatalogUnitOfWorkFactory) -> None:
+    def __init__(
+        self,
+        uow_factory: CatalogUnitOfWorkFactory,
+    ) -> None:
         """Сохраняет Unit of Work factory."""
         self._uow_factory = uow_factory
 
@@ -385,7 +437,9 @@ class GetManagedSourceContentUseCase:
             )
 
         try:
-            content = await self._storage.read(storage_key=source.storage_key)
+            content = await self._storage.read(
+                storage_key=source.storage_key,
+            )
         except SourceStorageError as exc:
             raise ManagedSourceStorageUnavailableError(
                 "Managed source storage is temporarily unavailable"
@@ -398,7 +452,7 @@ class GetManagedSourceContentUseCase:
 
 
 class DeleteManagedSourceUseCase:
-    """Выполняет crash-safe идемпотентный lifecycle удаления N/U source."""
+    """Выполняет crash-safe lifecycle удаления canonical и visible source."""
 
     def __init__(
         self,
@@ -422,7 +476,7 @@ class DeleteManagedSourceUseCase:
         source_id: UUID,
         kind: SourceKind,
     ) -> None:
-        """Фиксирует delete intent, удаляет content и подтверждает deleted state."""
+        """Удаляет visible mirror, canonical file и подтверждает deleted state."""
         source = await _get_source(
             uow_factory=self._uow_factory,
             user_id=user_id,
@@ -436,27 +490,57 @@ class DeleteManagedSourceUseCase:
         if source.lifecycle is SourceLifecycle.ACTIVE:
             source = await self._register_delete_intent(source)
 
+        sections, active_sources = await _load_user_tree_state(
+            uow_factory=self._uow_factory,
+            user_id=user_id,
+        )
+
         try:
-            await self._storage.delete(storage_key=source.storage_key)
+            await synchronize_user_source_tree(
+                storage=self._storage,
+                user_id=user_id,
+                sections=sections,
+                sources=active_sources,
+            )
+        except ManagedSourceStorageUnavailableError:
+            await self._mark_cleanup_failed(
+                source=source,
+                error_message="visible_tree_cleanup_failed",
+            )
+            raise
+
+        try:
+            await self._storage.delete(
+                storage_key=source.storage_key,
+            )
         except SourceStorageError as exc:
             await self._mark_cleanup_failed(
                 source=source,
                 error_message="storage_delete_failed",
             )
+
             raise ManagedSourceStorageUnavailableError(
                 "Managed source cleanup is temporarily unavailable"
             ) from exc
 
-        deleted = source.mark_deleted(changed_at=self._clock.now())
+        deleted = source.mark_deleted(
+            changed_at=self._clock.now(),
+        )
 
         async with self._uow_factory() as uow:
             await uow.sources.update(deleted)
             await uow.commit()
 
-    async def _register_delete_intent(self, source: ManagedSource) -> ManagedSource:
+    async def _register_delete_intent(
+        self,
+        source: ManagedSource,
+    ) -> ManagedSource:
         """Атомарно сохраняет delete_pending и delete_requested outbox event."""
         changed_at = self._clock.now()
-        pending = source.mark_delete_pending(changed_at=changed_at)
+
+        pending = source.mark_delete_pending(
+            changed_at=changed_at,
+        )
 
         message = SourceOutboxMessage(
             id=self._identifier_factory(),
@@ -496,7 +580,7 @@ class DeleteManagedSourceUseCase:
         source: ManagedSource,
         error_message: str,
     ) -> None:
-        """Durably фиксирует cleanup_failed для последующего безопасного retry."""
+        """Durably фиксирует cleanup_failed для последующего retry."""
         failed = source.mark_cleanup_failed(
             changed_at=self._clock.now(),
             error_message=error_message,

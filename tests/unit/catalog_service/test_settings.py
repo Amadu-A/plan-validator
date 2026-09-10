@@ -20,7 +20,7 @@ def test_catalog_settings_defaults() -> None:
     assert settings.catalog_database.host == "postgres"
     assert settings.catalog_database.schema_name == "catalog"
     assert settings.database_url.startswith("postgresql+psycopg://")
-    assert settings.catalog_source_storage.root_dir == Path("data/uploads/catalog")
+    assert settings.catalog_source_storage.root_dir == Path("data/catalog")
     assert settings.catalog_source_storage.max_upload_bytes == 64 * 1024 * 1024
 
 

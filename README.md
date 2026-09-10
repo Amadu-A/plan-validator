@@ -356,6 +356,41 @@ experience.cases
 
 ---
 
+# Persistent N/U storage
+
+Нормативные `N` и пользовательские `U` документы являются persistent managed sources. Их физическое хранение находится в host-visible каталоге проекта:
+
+```text
+data/catalog/
+├── .objects/
+│   └── <user_uuid>/
+│       ├── N/
+│       └── U/
+└── users/
+    └── <user_uuid>/
+        └── <section_title>__<section_id_short>/
+            ├── N_Нормативные документы/
+            ├── U_Пользовательские документы/
+            └── <nested_section>__<section_id_short>/
+                ├── N_Нормативные документы/
+                └── U_Пользовательские документы/
+```
+
+`.objects` хранит canonical originals по стабильным UUID и не зависит от переименования раздела.
+
+`users` является человекочитаемым materialized tree и повторяет hierarchy, которую пользователь видит в Catalog UI. При создании, переименовании, перемещении или удалении section дерево синхронизируется автоматически.
+
+Публичные ссылки никогда не содержат filesystem path. Источник открывается через stable API identity:
+
+```text
+/api/v1/catalog/normative-documents/<source_id>/content
+/api/v1/catalog/user-documents/<source_id>/content
+```
+
+Поэтому уже сформированное замечание продолжает ссылаться на тот же документ после переименования или перемещения section.
+
+---
+
 # Qdrant
 
 Persistent managed vector spaces используют stable aliases.
@@ -728,6 +763,11 @@ plan-validator/
 │   ├── RETENTION_POLICY.md
 │   ├── ROADMAP.md
 │   └── SHARED_ENGINEERING_STANDARD.md
+│
+├── data/
+│   └── catalog/
+│       ├── .objects/
+│       └── users/
 │
 ├── frontend/
 │   ├── Dockerfile

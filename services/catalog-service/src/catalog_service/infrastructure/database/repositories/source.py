@@ -7,15 +7,26 @@ from uuid import UUID
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from catalog_service.domain.source import ManagedSource, SourceKind, SourceLifecycle
-from catalog_service.infrastructure.database.models.section import SectionModel
-from catalog_service.infrastructure.database.models.source import ManagedSourceModel
+from catalog_service.domain.source import (
+    ManagedSource,
+    SourceKind,
+    SourceLifecycle,
+)
+from catalog_service.infrastructure.database.models.section import (
+    SectionModel,
+)
+from catalog_service.infrastructure.database.models.source import (
+    ManagedSourceModel,
+)
 
 
 class SqlAlchemyManagedSourceRepository:
     """Реализует persistence managed source aggregate."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+    ) -> None:
         """Сохраняет transaction-scoped AsyncSession."""
         self._session = session
 
@@ -38,6 +49,28 @@ class SqlAlchemyManagedSourceRepository:
             .order_by(
                 ManagedSourceModel.created_at.desc(),
                 ManagedSourceModel.original_name,
+                ManagedSourceModel.id,
+            )
+        )
+
+        models = (await self._session.scalars(statement)).all()
+
+        return [self._to_domain(model) for model in models]
+
+    async def list_active_for_user(
+        self,
+        *,
+        user_id: UUID,
+    ) -> list[ManagedSource]:
+        """Возвращает active sources для materialized filesystem tree."""
+        statement = (
+            select(ManagedSourceModel)
+            .where(
+                ManagedSourceModel.user_id == user_id,
+                ManagedSourceModel.lifecycle == SourceLifecycle.ACTIVE.value,
+            )
+            .order_by(
+                ManagedSourceModel.created_at,
                 ManagedSourceModel.id,
             )
         )
@@ -86,7 +119,10 @@ class SqlAlchemyManagedSourceRepository:
 
         return self._to_domain(model) if model is not None else None
 
-    async def add(self, source: ManagedSource) -> None:
+    async def add(
+        self,
+        source: ManagedSource,
+    ) -> None:
         """Добавляет managed source metadata."""
         self._session.add(
             ManagedSourceModel(
@@ -109,7 +145,10 @@ class SqlAlchemyManagedSourceRepository:
 
         await self._session.flush()
 
-    async def update(self, source: ManagedSource) -> None:
+    async def update(
+        self,
+        source: ManagedSource,
+    ) -> None:
         """Обновляет lifecycle mutable fields source."""
         statement = (
             update(ManagedSourceModel)
@@ -120,7 +159,7 @@ class SqlAlchemyManagedSourceRepository:
             )
             .values(
                 lifecycle=source.lifecycle.value,
-                last_cleanup_error=source.last_cleanup_error,
+                last_cleanup_error=(source.last_cleanup_error),
                 updated_at=source.updated_at,
                 deleted_at=source.deleted_at,
             )
@@ -174,7 +213,7 @@ class SqlAlchemyManagedSourceRepository:
         user_id: UUID,
         section_id: UUID,
     ) -> None:
-        """Удаляет только deleted metadata, чтобы FK RESTRICT не мешал section delete."""
+        """Удаляет deleted metadata перед section delete."""
         section_tree = (
             select(SectionModel.id.label("id"))
             .where(
@@ -205,7 +244,9 @@ class SqlAlchemyManagedSourceRepository:
         await self._session.execute(statement)
 
     @staticmethod
-    def _to_domain(model: ManagedSourceModel) -> ManagedSource:
+    def _to_domain(
+        model: ManagedSourceModel,
+    ) -> ManagedSource:
         """Преобразует persistence model в immutable domain entity."""
         return ManagedSource(
             id=model.id,
@@ -218,7 +259,7 @@ class SqlAlchemyManagedSourceRepository:
             size_bytes=model.size_bytes,
             sha256=model.sha256,
             lifecycle=SourceLifecycle(model.lifecycle),
-            last_cleanup_error=model.last_cleanup_error,
+            last_cleanup_error=(model.last_cleanup_error),
             created_at=model.created_at,
             updated_at=model.updated_at,
             deleted_at=model.deleted_at,

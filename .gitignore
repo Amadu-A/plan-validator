@@ -39,6 +39,11 @@ data/uploads/
 data/results/
 logs/
 
+# Persistent managed N/U data.
+# Сам каталог существует в Git через .gitkeep, пользовательские документы — нет.
+data/catalog/*
+!data/catalog/.gitkeep
+
 # Local model/cache data
 .cache/
 models/cache/

@@ -67,6 +67,18 @@ class MemorySourceStorage:
 
         self.objects.pop(storage_key, None)
 
+    async def synchronize_user_tree(
+        self,
+        *,
+        user_id: UUID,
+        sections: list[object],
+        sources: list[object],
+    ) -> None:
+        """Fake storage не materialize'ит visible filesystem tree."""
+        del user_id
+        del sections
+        del sources
+
 
 def build_source_use_cases() -> tuple[
     FakeUnitOfWorkFactory,
