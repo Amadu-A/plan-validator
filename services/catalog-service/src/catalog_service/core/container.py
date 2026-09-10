@@ -15,6 +15,13 @@ from catalog_service.application.use_cases import (
     SaveSystemPromptUseCase,
     UpdateSectionUseCase,
 )
+from catalog_service.application.use_cases.source_management import (
+    DeleteManagedSourceUseCase,
+    GetManagedSourceContentUseCase,
+    GetManagedSourceUseCase,
+    ListManagedSourcesUseCase,
+    UploadManagedSourceUseCase,
+)
 from catalog_service.core.settings import CatalogSettings
 from catalog_service.infrastructure.clock import SystemClock
 from catalog_service.infrastructure.database.engine import (
@@ -27,6 +34,7 @@ from catalog_service.infrastructure.database.health import (
 from catalog_service.infrastructure.database.uow import (
     SqlAlchemyCatalogUnitOfWorkFactory,
 )
+from catalog_service.infrastructure.storage import LocalSourceStorage
 
 
 @dataclass(slots=True)
@@ -41,6 +49,11 @@ class CatalogContainer:
     delete_section: DeleteSectionUseCase
     get_system_prompt: GetSystemPromptUseCase
     save_system_prompt: SaveSystemPromptUseCase
+    list_managed_sources: ListManagedSourcesUseCase
+    upload_managed_source: UploadManagedSourceUseCase
+    get_managed_source: GetManagedSourceUseCase
+    get_managed_source_content: GetManagedSourceContentUseCase
+    delete_managed_source: DeleteManagedSourceUseCase
     check_readiness: CheckReadinessUseCase
 
     async def aclose(self) -> None:
@@ -54,6 +67,7 @@ def build_container(settings: CatalogSettings) -> CatalogContainer:
     session_factory = create_catalog_session_factory(engine)
     uow_factory = SqlAlchemyCatalogUnitOfWorkFactory(session_factory)
     clock = SystemClock()
+    source_storage = LocalSourceStorage(settings.catalog_source_storage.root_dir)
 
     return CatalogContainer(
         settings=settings,
@@ -71,6 +85,23 @@ def build_container(settings: CatalogSettings) -> CatalogContainer:
         get_system_prompt=GetSystemPromptUseCase(uow_factory),
         save_system_prompt=SaveSystemPromptUseCase(
             uow_factory=uow_factory,
+            clock=clock,
+        ),
+        list_managed_sources=ListManagedSourcesUseCase(uow_factory),
+        upload_managed_source=UploadManagedSourceUseCase(
+            uow_factory=uow_factory,
+            storage=source_storage,
+            max_upload_bytes=settings.catalog_source_storage.max_upload_bytes,
+            clock=clock,
+        ),
+        get_managed_source=GetManagedSourceUseCase(uow_factory),
+        get_managed_source_content=GetManagedSourceContentUseCase(
+            uow_factory=uow_factory,
+            storage=source_storage,
+        ),
+        delete_managed_source=DeleteManagedSourceUseCase(
+            uow_factory=uow_factory,
+            storage=source_storage,
             clock=clock,
         ),
         check_readiness=CheckReadinessUseCase(SqlAlchemyDatabaseHealthProbe(session_factory)),

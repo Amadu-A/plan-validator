@@ -26,7 +26,9 @@ COPY services/catalog-service/src services/catalog-service/src
 RUN python -m pip install \
     --no-cache-dir \
     ./packages/common \
-    ./services/catalog-service
+    ./services/catalog-service \
+    && mkdir -p /app/data/uploads/catalog \
+    && chown -R 1000:1000 /app/data
 
 USER 1000:1000
 

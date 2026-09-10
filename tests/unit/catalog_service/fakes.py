@@ -7,6 +7,12 @@ from types import TracebackType
 from uuid import UUID
 
 from catalog_service.domain.section import Section
+from catalog_service.domain.source import (
+    ManagedSource,
+    SourceKind,
+    SourceLifecycle,
+    SourceOutboxMessage,
+)
 from catalog_service.domain.system_prompt import SystemPrompt
 
 
@@ -65,7 +71,7 @@ class InMemorySectionRepository:
             descendants = {
                 section.id
                 for section in self._storage.values()
-                if section.user_id == user_id and section.parent_id == current
+                if (section.user_id == user_id and section.parent_id == current)
             }
 
             pending.update(descendants)
@@ -88,6 +94,169 @@ class InMemorySystemPromptRepository:
         self._storage[prompt.user_id] = prompt
 
 
+class InMemoryManagedSourceRepository:
+    """In-memory ManagedSourceRepository."""
+
+    def __init__(
+        self,
+        *,
+        storage: dict[UUID, ManagedSource],
+        sections: dict[UUID, Section],
+    ) -> None:
+        """Сохраняет shared source и section storages."""
+        self._storage = storage
+        self._sections = sections
+
+    async def list_for_user_section(
+        self,
+        *,
+        user_id: UUID,
+        section_id: UUID,
+        kind: SourceKind,
+    ) -> list[ManagedSource]:
+        """Возвращает не удалённые sources заданного kind."""
+        values = [
+            source
+            for source in self._storage.values()
+            if (
+                source.user_id == user_id
+                and source.section_id == section_id
+                and source.kind is kind
+                and source.lifecycle is not SourceLifecycle.DELETED
+            )
+        ]
+
+        return sorted(
+            values,
+            key=lambda value: (
+                value.created_at,
+                value.original_name,
+                str(value.id),
+            ),
+            reverse=True,
+        )
+
+    async def get_for_user_kind(
+        self,
+        *,
+        user_id: UUID,
+        source_id: UUID,
+        kind: SourceKind,
+    ) -> ManagedSource | None:
+        """Возвращает source только внутри ownership/kind scope."""
+        source = self._storage.get(source_id)
+
+        if source is None or source.user_id != user_id or source.kind is not kind:
+            return None
+
+        return source
+
+    async def get_for_user_kind_for_update(
+        self,
+        *,
+        user_id: UUID,
+        source_id: UUID,
+        kind: SourceKind,
+    ) -> ManagedSource | None:
+        """Возвращает source как fake row-lock lookup."""
+        return await self.get_for_user_kind(
+            user_id=user_id,
+            source_id=source_id,
+            kind=kind,
+        )
+
+    async def add(self, source: ManagedSource) -> None:
+        """Добавляет source metadata."""
+        self._storage[source.id] = source
+
+    async def update(self, source: ManagedSource) -> None:
+        """Заменяет immutable source state."""
+        self._storage[source.id] = source
+
+    async def has_live_in_subtree(
+        self,
+        *,
+        user_id: UUID,
+        section_id: UUID,
+    ) -> bool:
+        """Проверяет live sources в in-memory section subtree."""
+        section_ids = self._subtree_ids(
+            user_id=user_id,
+            section_id=section_id,
+        )
+
+        return any(
+            source.user_id == user_id
+            and source.section_id in section_ids
+            and source.lifecycle is not SourceLifecycle.DELETED
+            for source in self._storage.values()
+        )
+
+    async def purge_deleted_in_subtree(
+        self,
+        *,
+        user_id: UUID,
+        section_id: UUID,
+    ) -> None:
+        """Удаляет deleted source metadata внутри subtree."""
+        section_ids = self._subtree_ids(
+            user_id=user_id,
+            section_id=section_id,
+        )
+
+        to_delete = [
+            source_id
+            for source_id, source in self._storage.items()
+            if (
+                source.user_id == user_id
+                and source.section_id in section_ids
+                and source.lifecycle is SourceLifecycle.DELETED
+            )
+        ]
+
+        for source_id in to_delete:
+            self._storage.pop(source_id, None)
+
+    def _subtree_ids(
+        self,
+        *,
+        user_id: UUID,
+        section_id: UUID,
+    ) -> set[UUID]:
+        """Вычисляет section subtree для fake repository."""
+        result = {section_id}
+        changed = True
+
+        while changed:
+            changed = False
+
+            for section in self._sections.values():
+                if (
+                    section.user_id == user_id
+                    and section.parent_id in result
+                    and section.id not in result
+                ):
+                    result.add(section.id)
+                    changed = True
+
+        return result
+
+
+class InMemorySourceOutboxRepository:
+    """In-memory SourceOutboxRepository."""
+
+    def __init__(
+        self,
+        storage: dict[UUID, SourceOutboxMessage],
+    ) -> None:
+        """Сохраняет shared outbox storage."""
+        self._storage = storage
+
+    async def add(self, message: SourceOutboxMessage) -> None:
+        """Добавляет durable event в fake transaction state."""
+        self._storage[message.id] = message
+
+
 class FakeUnitOfWork:
     """Fake Catalog transaction."""
 
@@ -96,10 +265,17 @@ class FakeUnitOfWork:
         *,
         sections: dict[UUID, Section],
         prompts: dict[UUID, SystemPrompt],
+        sources: dict[UUID, ManagedSource],
+        source_outbox: dict[UUID, SourceOutboxMessage],
     ) -> None:
         """Создаёт repositories поверх shared storages."""
         self.sections = InMemorySectionRepository(sections)
         self.system_prompts = InMemorySystemPromptRepository(prompts)
+        self.sources = InMemoryManagedSourceRepository(
+            storage=sources,
+            sections=sections,
+        )
+        self.source_outbox = InMemorySourceOutboxRepository(source_outbox)
         self.committed = False
 
     async def __aenter__(self) -> "FakeUnitOfWork":
@@ -133,12 +309,16 @@ class FakeUnitOfWorkFactory:
         """Инициализирует пустые storages."""
         self.sections: dict[UUID, Section] = {}
         self.prompts: dict[UUID, SystemPrompt] = {}
+        self.sources: dict[UUID, ManagedSource] = {}
+        self.source_outbox: dict[UUID, SourceOutboxMessage] = {}
 
     def __call__(self) -> FakeUnitOfWork:
         """Создаёт новый fake UoW."""
         return FakeUnitOfWork(
             sections=self.sections,
             prompts=self.prompts,
+            sources=self.sources,
+            source_outbox=self.source_outbox,
         )
 
 

@@ -9,6 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from catalog_service.infrastructure.database.repositories.section import (
     SqlAlchemySectionRepository,
 )
+from catalog_service.infrastructure.database.repositories.source import (
+    SqlAlchemyManagedSourceRepository,
+)
+from catalog_service.infrastructure.database.repositories.source_outbox import (
+    SqlAlchemySourceOutboxRepository,
+)
 from catalog_service.infrastructure.database.repositories.system_prompt import (
     SqlAlchemySystemPromptRepository,
 )
@@ -25,6 +31,8 @@ class SqlAlchemyCatalogUnitOfWork:
         self._session = session_factory()
         self._sections = SqlAlchemySectionRepository(self._session)
         self._system_prompts = SqlAlchemySystemPromptRepository(self._session)
+        self._sources = SqlAlchemyManagedSourceRepository(self._session)
+        self._source_outbox = SqlAlchemySourceOutboxRepository(self._session)
         self._committed = False
 
     @property
@@ -36,6 +44,16 @@ class SqlAlchemyCatalogUnitOfWork:
     def system_prompts(self) -> SqlAlchemySystemPromptRepository:
         """Возвращает repository prompts."""
         return self._system_prompts
+
+    @property
+    def sources(self) -> SqlAlchemyManagedSourceRepository:
+        """Возвращает repository managed N/U sources."""
+        return self._sources
+
+    @property
+    def source_outbox(self) -> SqlAlchemySourceOutboxRepository:
+        """Возвращает transactional source outbox repository."""
+        return self._source_outbox
 
     async def __aenter__(self) -> "SqlAlchemyCatalogUnitOfWork":
         """Открывает transaction scope."""

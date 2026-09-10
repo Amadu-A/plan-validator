@@ -16,6 +16,15 @@ class GatewayHttpSettings(BaseModel):
     docs_enabled: bool = True
 
 
+class GatewayUploadSettings(BaseModel):
+    """Bounded browser upload limits API Gateway."""
+
+    max_managed_source_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        gt=0,
+    )
+
+
 class InternalHttpSettings(BaseModel):
     """Настройки outbound HTTP clients internal service calls."""
 
@@ -79,6 +88,9 @@ class GatewaySettings(CommonSettings):
 
     gateway: GatewayHttpSettings = Field(
         default_factory=GatewayHttpSettings,
+    )
+    gateway_upload: GatewayUploadSettings = Field(
+        default_factory=GatewayUploadSettings,
     )
     internal_http: InternalHttpSettings = Field(
         default_factory=InternalHttpSettings,

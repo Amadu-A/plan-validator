@@ -58,12 +58,16 @@ def test_gateway_required_files_exist() -> None:
         "services/api-gateway/src/api_gateway/core/settings.py",
         "services/api-gateway/src/api_gateway/application/internal_service.py",
         "services/api-gateway/src/api_gateway/application/system_info.py",
+        "services/api-gateway/src/api_gateway/application/catalog_sources.py",
         "services/api-gateway/src/api_gateway/infrastructure/http_client.py",
+        "services/api-gateway/src/api_gateway/infrastructure/catalog_source_client.py",
         "services/api-gateway/src/api_gateway/transport/app.py",
         "services/api-gateway/src/api_gateway/transport/errors.py",
         "services/api-gateway/src/api_gateway/transport/middleware.py",
+        "services/api-gateway/src/api_gateway/transport/catalog_source_schemas.py",
         "services/api-gateway/src/api_gateway/transport/routers/health.py",
         "services/api-gateway/src/api_gateway/transport/routers/system.py",
+        "services/api-gateway/src/api_gateway/transport/routers/catalog_sources.py",
         "services/api-gateway/src/api_gateway/transport/routers/api_v1.py",
     )
 
@@ -158,6 +162,20 @@ def test_gateway_has_versioned_public_api() -> None:
 
     assert 'prefix="/api/v1"' in api_v1
     assert 'prefix="/health"' in health
+
+
+def test_gateway_exposes_typed_n_u_source_facade_without_storage_key() -> None:
+    """Фиксирует public N/U routes и запрет internal filesystem metadata."""
+    router = read_project_file(
+        "services/api-gateway/src/api_gateway/transport/routers/catalog_sources.py"
+    )
+    schema = read_project_file(
+        "services/api-gateway/src/api_gateway/transport/catalog_source_schemas.py"
+    )
+
+    assert '"/normative-documents"' in router
+    assert '"/user-documents"' in router
+    assert "storage_key" not in schema
 
 
 def test_gateway_sources_have_module_and_callable_docstrings() -> None:

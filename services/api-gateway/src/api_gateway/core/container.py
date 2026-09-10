@@ -6,11 +6,15 @@ from dataclasses import dataclass, field
 
 from api_gateway.application.auth_service import AuthServiceClient
 from api_gateway.application.catalog_service import CatalogServiceClient
+from api_gateway.application.catalog_sources import CatalogSourceServiceClient
 from api_gateway.application.internal_service import InternalServiceClient
 from api_gateway.application.system_info import GetSystemInfoUseCase
 from api_gateway.core.settings import GatewaySettings
 from api_gateway.infrastructure.auth_client import HttpAuthServiceClient
 from api_gateway.infrastructure.catalog_client import HttpCatalogServiceClient
+from api_gateway.infrastructure.catalog_source_client import (
+    HttpCatalogSourceServiceClient,
+)
 from api_gateway.infrastructure.http_client import HttpInternalServiceClient
 
 
@@ -22,6 +26,7 @@ class GatewayContainer:
     system_info: GetSystemInfoUseCase
     auth_service: AuthServiceClient
     catalog_service: CatalogServiceClient
+    catalog_sources: CatalogSourceServiceClient
     _ready: bool = field(
         default=False,
         init=False,
@@ -57,6 +62,7 @@ class GatewayContainer:
         """Закрывает owned downstream HTTP pools."""
         await self.auth_service.aclose()
         await self.catalog_service.aclose()
+        await self.catalog_sources.aclose()
 
 
 def build_container(
@@ -82,9 +88,16 @@ def build_container(
         read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
     )
 
+    catalog_sources = HttpCatalogSourceServiceClient(
+        base_url=settings.catalog_service.base_url,
+        connect_timeout_seconds=(settings.internal_http.connect_timeout_seconds),
+        read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
+    )
+
     return GatewayContainer(
         settings=settings,
         system_info=system_info,
         auth_service=auth_service,
         catalog_service=catalog_service,
+        catalog_sources=catalog_sources,
     )

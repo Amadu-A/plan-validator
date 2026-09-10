@@ -11,7 +11,12 @@ from plan_validator_common.observability import get_log_context
 from catalog_service.domain.exceptions import (
     CatalogDomainError,
     InvalidCatalogValueError,
+    InvalidManagedSourceUploadError,
     InvalidSectionHierarchyError,
+    ManagedSourceLifecycleConflictError,
+    ManagedSourceNotFoundError,
+    ManagedSourceStorageUnavailableError,
+    SectionContainsSourcesError,
     SectionNotFoundError,
 )
 from catalog_service.transport.schemas import ErrorDetail, ErrorResponse
@@ -101,11 +106,26 @@ def _classify_domain_error(
     if isinstance(exc, SectionNotFoundError):
         return 404, "section_not_found", str(exc)
 
+    if isinstance(exc, ManagedSourceNotFoundError):
+        return 404, "managed_source_not_found", str(exc)
+
+    if isinstance(exc, SectionContainsSourcesError):
+        return 409, "section_contains_sources", str(exc)
+
+    if isinstance(exc, ManagedSourceLifecycleConflictError):
+        return 409, "managed_source_lifecycle_conflict", str(exc)
+
     if isinstance(exc, InvalidSectionHierarchyError):
         return 400, "invalid_section_hierarchy", str(exc)
 
+    if isinstance(exc, InvalidManagedSourceUploadError):
+        return 400, "invalid_managed_source_upload", str(exc)
+
     if isinstance(exc, InvalidCatalogValueError):
         return 400, "invalid_catalog_value", str(exc)
+
+    if isinstance(exc, ManagedSourceStorageUnavailableError):
+        return 503, "managed_source_storage_unavailable", str(exc)
 
     return 400, "catalog_error", "Catalog request failed"
 

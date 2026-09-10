@@ -201,6 +201,7 @@ services:
 
     volumes:
       - ./var/log:/app/var/log
+      - catalog-source-data:/app/data/uploads/catalog
 
     networks:
       - private
@@ -331,3 +332,4 @@ networks:
 volumes:
   postgres-data:
   qdrant-data:
+  catalog-source-data:

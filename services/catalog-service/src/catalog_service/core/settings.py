@@ -2,6 +2,7 @@
 
 """Pydantic Settings Catalog Service."""
 
+from pathlib import Path
 from urllib.parse import quote
 
 from plan_validator_common.settings import CommonSettings
@@ -21,6 +22,16 @@ class CatalogDatabaseSettings(BaseModel):
     pool_timeout_seconds: float = Field(default=30.0, gt=0)
 
 
+class CatalogSourceStorageSettings(BaseModel):
+    """Safe persistent storage settings managed N/U sources."""
+
+    root_dir: Path = Path("data/uploads/catalog")
+    max_upload_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        gt=0,
+    )
+
+
 class CatalogSettings(CommonSettings):
     """Объединяет common и Catalog-specific configuration."""
 
@@ -30,6 +41,9 @@ class CatalogSettings(CommonSettings):
     postgres_password: SecretStr
 
     catalog_database: CatalogDatabaseSettings = Field(default_factory=CatalogDatabaseSettings)
+    catalog_source_storage: CatalogSourceStorageSettings = Field(
+        default_factory=CatalogSourceStorageSettings
+    )
 
     @field_validator("postgres_password")
     @classmethod

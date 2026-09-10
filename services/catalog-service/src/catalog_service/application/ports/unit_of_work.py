@@ -6,6 +6,10 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from catalog_service.application.ports.section_repository import SectionRepository
+from catalog_service.application.ports.source_outbox_repository import (
+    SourceOutboxRepository,
+)
+from catalog_service.application.ports.source_repository import ManagedSourceRepository
 from catalog_service.application.ports.system_prompt_repository import (
     SystemPromptRepository,
 )
@@ -21,6 +25,14 @@ class CatalogUnitOfWork(Protocol):
     @property
     def system_prompts(self) -> SystemPromptRepository:
         """Возвращает repository prompts текущей transaction."""
+
+    @property
+    def sources(self) -> ManagedSourceRepository:
+        """Возвращает repository managed N/U sources."""
+
+    @property
+    def source_outbox(self) -> SourceOutboxRepository:
+        """Возвращает transactional outbox repository."""
 
     async def __aenter__(self) -> Self:
         """Открывает transaction scope."""

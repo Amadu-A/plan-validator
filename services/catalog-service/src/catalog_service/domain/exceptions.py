@@ -17,3 +17,23 @@ class InvalidSectionHierarchyError(CatalogDomainError):
 
 class InvalidCatalogValueError(CatalogDomainError):
     """Означает нарушение ограничений значения Catalog domain."""
+
+
+class SectionContainsSourcesError(CatalogDomainError):
+    """Означает попытку удалить section с живыми managed sources."""
+
+
+class ManagedSourceNotFoundError(CatalogDomainError):
+    """Означает отсутствие N/U source внутри ownership scope пользователя."""
+
+
+class InvalidManagedSourceUploadError(CatalogDomainError):
+    """Означает некорректный формат, имя или размер загружаемого source."""
+
+
+class ManagedSourceLifecycleConflictError(CatalogDomainError):
+    """Означает операцию, запрещённую текущим lifecycle managed source."""
+
+
+class ManagedSourceStorageUnavailableError(CatalogDomainError):
+    """Означает временную недоступность managed source storage."""

@@ -3,9 +3,7 @@
 """Unit tests service-specific settings API Gateway."""
 
 import pytest
-from api_gateway.core.settings import (
-    GatewaySettings,
-)
+from api_gateway.core.settings import GatewaySettings
 
 
 def test_gateway_settings_use_safe_defaults() -> None:
@@ -19,6 +17,7 @@ def test_gateway_settings_use_safe_defaults() -> None:
     assert settings.gateway.host == "0.0.0.0"
     assert settings.gateway.port == 8000
     assert settings.gateway.docs_enabled is True
+    assert settings.gateway_upload.max_managed_source_bytes == 64 * 1024 * 1024
 
     assert settings.internal_http.connect_timeout_seconds == 3.0
     assert settings.internal_http.read_timeout_seconds == 30.0
@@ -33,6 +32,10 @@ def test_nested_environment_overrides_gateway_settings(
         "9010",
     )
     monkeypatch.setenv(
+        "PLAN_VALIDATOR_GATEWAY_UPLOAD__MAX_MANAGED_SOURCE_BYTES",
+        "4096",
+    )
+    monkeypatch.setenv(
         "PLAN_VALIDATOR_INTERNAL_HTTP__READ_TIMEOUT_SECONDS",
         "12.5",
     )
@@ -40,4 +43,5 @@ def test_nested_environment_overrides_gateway_settings(
     settings = GatewaySettings(_env_file=None)
 
     assert settings.gateway.port == 9010
+    assert settings.gateway_upload.max_managed_source_bytes == 4096
     assert settings.internal_http.read_timeout_seconds == 12.5
