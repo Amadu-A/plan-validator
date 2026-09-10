@@ -4,6 +4,8 @@
 
 from uuid import UUID
 
+from plan_validator_common.observability import log_execution_time
+
 from catalog_service.application.ports.clock import Clock
 from catalog_service.application.ports.unit_of_work import CatalogUnitOfWorkFactory
 from catalog_service.domain.exceptions import (
@@ -11,7 +13,6 @@ from catalog_service.domain.exceptions import (
     SectionNotFoundError,
 )
 from catalog_service.domain.section import Section, normalize_section_title
-from plan_validator_common.observability import log_execution_time
 
 
 class UpdateSectionUseCase:
@@ -48,9 +49,7 @@ class UpdateSectionUseCase:
             if existing is None:
                 raise SectionNotFoundError("Section was not found")
 
-            resolved_parent_id = (
-                parent_id if parent_id_supplied else existing.parent_id
-            )
+            resolved_parent_id = parent_id if parent_id_supplied else existing.parent_id
 
             all_sections = await uow.sections.list_for_user(user_id)
 
@@ -60,20 +59,14 @@ class UpdateSectionUseCase:
                 sections=all_sections,
             )
 
-            resolved_title = (
-                normalize_section_title(title)
-                if title is not None
-                else existing.title
-            )
+            resolved_title = normalize_section_title(title) if title is not None else existing.title
 
             updated = Section(
                 id=existing.id,
                 user_id=existing.user_id,
                 parent_id=resolved_parent_id,
                 title=resolved_title,
-                sort_order=(
-                    sort_order if sort_order is not None else existing.sort_order
-                ),
+                sort_order=(sort_order if sort_order is not None else existing.sort_order),
                 created_at=existing.created_at,
                 updated_at=self._clock.now(),
             )
@@ -95,9 +88,7 @@ class UpdateSectionUseCase:
             return
 
         if parent_id == section_id:
-            raise InvalidSectionHierarchyError(
-                "Section cannot be its own parent"
-            )
+            raise InvalidSectionHierarchyError("Section cannot be its own parent")
 
         by_id = {section.id: section for section in sections}
 
@@ -109,14 +100,10 @@ class UpdateSectionUseCase:
 
         while current_id is not None:
             if current_id == section_id:
-                raise InvalidSectionHierarchyError(
-                    "Section cannot be moved below its descendant"
-                )
+                raise InvalidSectionHierarchyError("Section cannot be moved below its descendant")
 
             if current_id in visited:
-                raise InvalidSectionHierarchyError(
-                    "Existing section hierarchy contains a cycle"
-                )
+                raise InvalidSectionHierarchyError("Existing section hierarchy contains a cycle")
 
             visited.add(current_id)
 

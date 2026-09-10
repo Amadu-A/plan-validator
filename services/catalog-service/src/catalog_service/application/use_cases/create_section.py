@@ -4,11 +4,12 @@
 
 from uuid import UUID, uuid4
 
+from plan_validator_common.observability import log_execution_time
+
 from catalog_service.application.ports.clock import Clock
 from catalog_service.application.ports.unit_of_work import CatalogUnitOfWorkFactory
 from catalog_service.domain.exceptions import SectionNotFoundError
 from catalog_service.domain.section import Section, normalize_section_title
-from plan_validator_common.observability import log_execution_time
 
 
 class CreateSectionUseCase:

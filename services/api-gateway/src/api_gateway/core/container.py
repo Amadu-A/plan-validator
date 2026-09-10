@@ -49,12 +49,8 @@ class GatewayContainer:
         """Создаёт generic HTTP adapter через composition root."""
         return HttpInternalServiceClient(
             base_url=base_url,
-            connect_timeout_seconds=(
-                self.settings.internal_http.connect_timeout_seconds
-            ),
-            read_timeout_seconds=(
-                self.settings.internal_http.read_timeout_seconds
-            ),
+            connect_timeout_seconds=(self.settings.internal_http.connect_timeout_seconds),
+            read_timeout_seconds=(self.settings.internal_http.read_timeout_seconds),
         )
 
     async def aclose(self) -> None:
@@ -76,22 +72,14 @@ def build_container(
 
     auth_service = HttpAuthServiceClient(
         base_url=settings.auth_service.base_url,
-        connect_timeout_seconds=(
-            settings.internal_http.connect_timeout_seconds
-        ),
-        read_timeout_seconds=(
-            settings.internal_http.read_timeout_seconds
-        ),
+        connect_timeout_seconds=(settings.internal_http.connect_timeout_seconds),
+        read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
     )
 
     catalog_service = HttpCatalogServiceClient(
         base_url=settings.catalog_service.base_url,
-        connect_timeout_seconds=(
-            settings.internal_http.connect_timeout_seconds
-        ),
-        read_timeout_seconds=(
-            settings.internal_http.read_timeout_seconds
-        ),
+        connect_timeout_seconds=(settings.internal_http.connect_timeout_seconds),
+        read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
     )
 
     return GatewayContainer(

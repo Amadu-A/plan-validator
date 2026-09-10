@@ -3,6 +3,7 @@
 """SQLAlchemy persistence model пользовательского system prompt."""
 
 from datetime import datetime
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import DateTime, Text, Uuid
@@ -15,7 +16,7 @@ class SystemPromptModel(Base):
     """Persistence representation singleton prompt пользователя."""
 
     __tablename__ = "system_prompts"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__: ClassVar[dict[str, str]] = {"schema": "catalog"}
 
     user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),

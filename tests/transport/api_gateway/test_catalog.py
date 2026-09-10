@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi.testclient import TestClient
-
 from api_gateway.application.auth_service import AuthUser
 from api_gateway.application.catalog_service import (
     CatalogSection,
@@ -15,6 +13,7 @@ from api_gateway.application.catalog_service import (
 )
 from api_gateway.core.settings import GatewaySettings
 from api_gateway.transport.app import create_app
+from fastapi.testclient import TestClient
 from plan_validator_common.settings import Environment
 
 
@@ -113,17 +112,9 @@ class FakeCatalogServiceClient:
 
         updated = CatalogSection(
             id=current.id,
-            parent_id=(
-                parent_id
-                if parent_id_supplied
-                else current.parent_id
-            ),
+            parent_id=(parent_id if parent_id_supplied else current.parent_id),
             title=title if title is not None else current.title,
-            sort_order=(
-                sort_order
-                if sort_order is not None
-                else current.sort_order
-            ),
+            sort_order=(sort_order if sort_order is not None else current.sort_order),
             created_at=current.created_at,
             updated_at=current.updated_at,
         )
@@ -232,8 +223,6 @@ def test_catalog_requires_authentication_and_supports_crud(
         assert prompt.status_code == 200
         assert prompt.json()["prompt"] == "Проверяй строго."
 
-        deleted = client.delete(
-            f"/api/v1/catalog/sections/{section_id}"
-        )
+        deleted = client.delete(f"/api/v1/catalog/sections/{section_id}")
 
         assert deleted.status_code == 204

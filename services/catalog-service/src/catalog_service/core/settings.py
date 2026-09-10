@@ -29,9 +29,7 @@ class CatalogSettings(CommonSettings):
 
     postgres_password: SecretStr
 
-    catalog_database: CatalogDatabaseSettings = Field(
-        default_factory=CatalogDatabaseSettings
-    )
+    catalog_database: CatalogDatabaseSettings = Field(default_factory=CatalogDatabaseSettings)
 
     @field_validator("postgres_password")
     @classmethod

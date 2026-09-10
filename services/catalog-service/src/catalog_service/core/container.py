@@ -73,7 +73,5 @@ def build_container(settings: CatalogSettings) -> CatalogContainer:
             uow_factory=uow_factory,
             clock=clock,
         ),
-        check_readiness=CheckReadinessUseCase(
-            SqlAlchemyDatabaseHealthProbe(session_factory)
-        ),
+        check_readiness=CheckReadinessUseCase(SqlAlchemyDatabaseHealthProbe(session_factory)),
     )

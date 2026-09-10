@@ -4,13 +4,12 @@
 
 import asyncio
 
-from alembic import context
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.pool import NullPool
-
 import catalog_service.infrastructure.database.models  # noqa: F401
+from alembic import context
 from catalog_service.core.settings import load_catalog_settings
 from catalog_service.infrastructure.database.base import Base
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 target_metadata = Base.metadata
 

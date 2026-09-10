@@ -19,16 +19,18 @@ def cleanup_runtime_user(email: str) -> None:
         )
     )
 
-    with psycopg.connect(
-        host="127.0.0.1",
-        port=host_port,
-        dbname="plan_validator",
-        user="plan_validator",
-        password=password,
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
+    with (
+        psycopg.connect(
+            host="127.0.0.1",
+            port=host_port,
+            dbname="plan_validator",
+            user="plan_validator",
+            password=password,
+        ) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            """
                 DELETE FROM catalog.sections
                 WHERE user_id = (
                     SELECT id
@@ -36,11 +38,11 @@ def cleanup_runtime_user(email: str) -> None:
                     WHERE email = %s
                 )
                 """,
-                (email.casefold(),),
-            )
+            (email.casefold(),),
+        )
 
-            cursor.execute(
-                """
+        cursor.execute(
+            """
                 DELETE FROM catalog.system_prompts
                 WHERE user_id = (
                     SELECT id
@@ -48,13 +50,13 @@ def cleanup_runtime_user(email: str) -> None:
                     WHERE email = %s
                 )
                 """,
-                (email.casefold(),),
-            )
+            (email.casefold(),),
+        )
 
-            cursor.execute(
-                "DELETE FROM auth.users WHERE email = %s",
-                (email.casefold(),),
-            )
+        cursor.execute(
+            "DELETE FROM auth.users WHERE email = %s",
+            (email.casefold(),),
+        )
 
 
 def test_runtime_nested_catalog_and_system_prompt() -> None:
@@ -123,35 +125,21 @@ def test_runtime_nested_catalog_and_system_prompt() -> None:
 
             saved_prompt = client.put(
                 "/api/v1/catalog/system-prompt",
-                json={
-                    "prompt": (
-                        "Проверяй проект строго по найденной "
-                        "нормативной базе."
-                    )
-                },
+                json={"prompt": ("Проверяй проект строго по найденной нормативной базе.")},
             )
 
             assert saved_prompt.status_code == 200
 
-            loaded_prompt = client.get(
-                "/api/v1/catalog/system-prompt"
-            )
+            loaded_prompt = client.get("/api/v1/catalog/system-prompt")
 
             assert loaded_prompt.status_code == 200
-            assert (
-                loaded_prompt.json()["prompt"]
-                == saved_prompt.json()["prompt"]
-            )
+            assert loaded_prompt.json()["prompt"] == saved_prompt.json()["prompt"]
 
-            deleted = client.delete(
-                f"/api/v1/catalog/sections/{root_id}"
-            )
+            deleted = client.delete(f"/api/v1/catalog/sections/{root_id}")
 
             assert deleted.status_code == 204
 
-            after_delete = client.get(
-                "/api/v1/catalog/sections"
-            )
+            after_delete = client.get("/api/v1/catalog/sections")
 
             assert after_delete.status_code == 200
             assert after_delete.json()["sections"] == []

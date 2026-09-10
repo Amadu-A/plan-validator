@@ -64,15 +64,9 @@ class HttpCatalogServiceClient:
         raw_sections = payload.get("sections")
 
         if not isinstance(raw_sections, list):
-            raise ExternalDependencyError(
-                "Catalog Service section list response is invalid"
-            )
+            raise ExternalDependencyError("Catalog Service section list response is invalid")
 
-        return [
-            self._parse_section(item)
-            for item in raw_sections
-            if isinstance(item, dict)
-        ]
+        return [self._parse_section(item) for item in raw_sections if isinstance(item, dict)]
 
     async def create_section(
         self,
@@ -96,9 +90,7 @@ class HttpCatalogServiceClient:
         self._raise_for_error(response)
 
         if response.status_code != 201:
-            raise ExternalDependencyError(
-                "Unexpected Catalog create status"
-            )
+            raise ExternalDependencyError("Unexpected Catalog create status")
 
         return self._parse_section(self._json_object(response))
 
@@ -119,21 +111,14 @@ class HttpCatalogServiceClient:
             payload["title"] = title
 
         if parent_id_supplied:
-            payload["parent_id"] = (
-                str(parent_id)
-                if parent_id is not None
-                else None
-            )
+            payload["parent_id"] = str(parent_id) if parent_id is not None else None
 
         if sort_order is not None:
             payload["sort_order"] = sort_order
 
         response = await self._request(
             method="PATCH",
-            path=(
-                f"/internal/v1/catalog/users/{user_id}"
-                f"/sections/{section_id}"
-            ),
+            path=(f"/internal/v1/catalog/users/{user_id}/sections/{section_id}"),
             payload=payload,
         )
 
@@ -150,18 +135,13 @@ class HttpCatalogServiceClient:
         """Удаляет section через internal Catalog API."""
         response = await self._request(
             method="DELETE",
-            path=(
-                f"/internal/v1/catalog/users/{user_id}"
-                f"/sections/{section_id}"
-            ),
+            path=(f"/internal/v1/catalog/users/{user_id}/sections/{section_id}"),
         )
 
         self._raise_for_error(response)
 
         if response.status_code != 204:
-            raise ExternalDependencyError(
-                "Unexpected Catalog delete status"
-            )
+            raise ExternalDependencyError("Unexpected Catalog delete status")
 
     async def get_system_prompt(
         self,
@@ -176,9 +156,7 @@ class HttpCatalogServiceClient:
 
         self._raise_for_error(response)
 
-        return self._parse_system_prompt(
-            self._json_object(response)
-        )
+        return self._parse_system_prompt(self._json_object(response))
 
     async def save_system_prompt(
         self,
@@ -195,9 +173,7 @@ class HttpCatalogServiceClient:
 
         self._raise_for_error(response)
 
-        return self._parse_system_prompt(
-            self._json_object(response)
-        )
+        return self._parse_system_prompt(self._json_object(response))
 
     async def aclose(self) -> None:
         """Закрывает HTTPX connection pool."""
@@ -223,14 +199,10 @@ class HttpCatalogServiceClient:
             httpx.TimeoutException,
             httpx.TransportError,
         ) as exc:
-            raise TemporaryDependencyError(
-                "Catalog Service is temporarily unavailable"
-            ) from exc
+            raise TemporaryDependencyError("Catalog Service is temporarily unavailable") from exc
 
         if response.status_code >= 500:
-            raise TemporaryDependencyError(
-                "Catalog Service returned server error"
-            )
+            raise TemporaryDependencyError("Catalog Service returned server error")
 
         return response
 
@@ -243,9 +215,7 @@ class HttpCatalogServiceClient:
         error = payload.get("error")
 
         if not isinstance(error, dict):
-            raise ExternalDependencyError(
-                "Catalog Service error contract is invalid"
-            )
+            raise ExternalDependencyError("Catalog Service error contract is invalid")
 
         message = str(error.get("message", "Catalog request failed"))
 
@@ -258,9 +228,7 @@ class HttpCatalogServiceClient:
         if response.status_code == 400:
             raise ApplicationError(message)
 
-        raise ExternalDependencyError(
-            "Unexpected Catalog Service error"
-        )
+        raise ExternalDependencyError("Unexpected Catalog Service error")
 
     @staticmethod
     def _json_object(response: httpx.Response) -> dict[str, Any]:
@@ -268,14 +236,10 @@ class HttpCatalogServiceClient:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise ExternalDependencyError(
-                "Catalog Service returned invalid JSON"
-            ) from exc
+            raise ExternalDependencyError("Catalog Service returned invalid JSON") from exc
 
         if not isinstance(payload, dict):
-            raise ExternalDependencyError(
-                "Catalog Service returned invalid object"
-            )
+            raise ExternalDependencyError("Catalog Service returned invalid object")
 
         return payload
 
@@ -287,11 +251,7 @@ class HttpCatalogServiceClient:
 
             return CatalogSection(
                 id=UUID(str(payload["id"])),
-                parent_id=(
-                    UUID(str(parent_raw))
-                    if parent_raw is not None
-                    else None
-                ),
+                parent_id=(UUID(str(parent_raw)) if parent_raw is not None else None),
                 title=str(payload["title"]),
                 sort_order=int(payload["sort_order"]),
                 created_at=datetime.fromisoformat(
@@ -302,9 +262,7 @@ class HttpCatalogServiceClient:
                 ),
             )
         except (KeyError, TypeError, ValueError) as exc:
-            raise ExternalDependencyError(
-                "Catalog Service section response is invalid"
-            ) from exc
+            raise ExternalDependencyError("Catalog Service section response is invalid") from exc
 
     @staticmethod
     def _parse_system_prompt(
@@ -317,14 +275,10 @@ class HttpCatalogServiceClient:
             return CatalogSystemPrompt(
                 prompt=str(payload["prompt"]),
                 updated_at=(
-                    datetime.fromisoformat(
-                        str(updated_raw).replace("Z", "+00:00")
-                    )
+                    datetime.fromisoformat(str(updated_raw).replace("Z", "+00:00"))
                     if updated_raw is not None
                     else None
                 ),
             )
         except (KeyError, TypeError, ValueError) as exc:
-            raise ExternalDependencyError(
-                "Catalog Service prompt response is invalid"
-            ) from exc
+            raise ExternalDependencyError("Catalog Service prompt response is invalid") from exc

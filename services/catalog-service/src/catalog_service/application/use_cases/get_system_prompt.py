@@ -4,9 +4,10 @@
 
 from uuid import UUID
 
+from plan_validator_common.observability import log_execution_time
+
 from catalog_service.application.dto import SystemPromptView
 from catalog_service.application.ports.unit_of_work import CatalogUnitOfWorkFactory
-from plan_validator_common.observability import log_execution_time
 
 
 class GetSystemPromptUseCase:

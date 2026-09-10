@@ -41,10 +41,7 @@ async def list_sections(
     sections = await container.list_sections.execute(user_id=user_id)
 
     return SectionListResponse(
-        sections=[
-            SectionResponse.from_domain(section)
-            for section in sections
-        ]
+        sections=[SectionResponse.from_domain(section) for section in sections]
     )
 
 

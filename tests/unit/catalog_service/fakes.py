@@ -20,11 +20,7 @@ class InMemorySectionRepository:
     async def list_for_user(self, user_id: UUID) -> list[Section]:
         """Возвращает user-owned sections."""
         return sorted(
-            (
-                section
-                for section in self._storage.values()
-                if section.user_id == user_id
-            ),
+            (section for section in self._storage.values() if section.user_id == user_id),
             key=lambda value: (
                 value.sort_order,
                 value.title,
@@ -69,8 +65,7 @@ class InMemorySectionRepository:
             descendants = {
                 section.id
                 for section in self._storage.values()
-                if section.user_id == user_id
-                and section.parent_id == current
+                if section.user_id == user_id and section.parent_id == current
             }
 
             pending.update(descendants)

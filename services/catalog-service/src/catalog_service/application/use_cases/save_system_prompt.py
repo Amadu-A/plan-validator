@@ -4,11 +4,12 @@
 
 from uuid import UUID
 
+from plan_validator_common.observability import log_execution_time
+
 from catalog_service.application.dto import SystemPromptView
 from catalog_service.application.ports.clock import Clock
 from catalog_service.application.ports.unit_of_work import CatalogUnitOfWorkFactory
 from catalog_service.domain.system_prompt import SystemPrompt, validate_system_prompt
-from plan_validator_common.observability import log_execution_time
 
 
 class SaveSystemPromptUseCase:

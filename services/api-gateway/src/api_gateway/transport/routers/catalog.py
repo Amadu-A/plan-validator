@@ -46,9 +46,7 @@ async def _resolve_authenticated_user(
     if session_token is None:
         raise AuthenticationError("Authentication required")
 
-    return await container.auth_service.get_current_user(
-        session_token=session_token
-    )
+    return await container.auth_service.get_current_user(session_token=session_token)
 
 
 @router.get(
@@ -65,16 +63,9 @@ async def list_sections(
         container=container,
     )
 
-    sections = await container.catalog_service.list_sections(
-        user_id=user.id
-    )
+    sections = await container.catalog_service.list_sections(user_id=user.id)
 
-    return SectionListResponse(
-        sections=[
-            SectionResponse.from_dto(section)
-            for section in sections
-        ]
-    )
+    return SectionListResponse(sections=[SectionResponse.from_dto(section) for section in sections])
 
 
 @router.post(
@@ -168,9 +159,7 @@ async def get_system_prompt(
         container=container,
     )
 
-    prompt = await container.catalog_service.get_system_prompt(
-        user_id=user.id
-    )
+    prompt = await container.catalog_service.get_system_prompt(user_id=user.id)
 
     return SystemPromptResponse.from_dto(prompt)
 

@@ -9,7 +9,6 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-
 from catalog_service.application.use_cases import (
     CreateSectionUseCase,
     DeleteSectionUseCase,
@@ -19,6 +18,7 @@ from catalog_service.application.use_cases import (
     UpdateSectionUseCase,
 )
 from catalog_service.domain.exceptions import InvalidSectionHierarchyError
+
 from tests.unit.catalog_service.fakes import FakeUnitOfWorkFactory, FixedClock
 
 NOW = datetime(
@@ -101,9 +101,7 @@ def test_create_nested_sections_and_list() -> None:
         )
     )
 
-    sections = run_async(
-        list_sections.execute(user_id=user_id)
-    )
+    sections = run_async(list_sections.execute(user_id=user_id))
 
     assert root.title == "Нормативные документы"
     assert child.parent_id == root.id
@@ -213,9 +211,7 @@ def test_system_prompt_empty_default_and_save() -> None:
 
     user_id = uuid4()
 
-    initial = run_async(
-        get_prompt.execute(user_id=user_id)
-    )
+    initial = run_async(get_prompt.execute(user_id=user_id))
 
     assert initial.prompt == ""
     assert initial.updated_at is None
@@ -229,8 +225,6 @@ def test_system_prompt_empty_default_and_save() -> None:
 
     assert "нормативной" in saved.prompt
 
-    loaded = run_async(
-        get_prompt.execute(user_id=user_id)
-    )
+    loaded = run_async(get_prompt.execute(user_id=user_id))
 
     assert loaded == saved
