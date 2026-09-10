@@ -171,14 +171,20 @@ def test_shared_checks_use_runtime_not_shared_repository_checkout() -> None:
 
 
 def test_rabbitmq_checks_do_not_short_circuit_runtime_queries() -> None:
-    """Запрещает `grep -q` pipelines с rabbitmqctl при включённом pipefail."""
+    """Запрещает исполняемые `grep -q` pipelines с rabbitmqctl и pipefail."""
     provisioning = read_project_file("scripts/provision-rabbitmq.sh")
 
-    assert "set -Eeuo pipefail" in provisioning
-    assert "rabbitmqctl_shared list_vhosts --silent" in provisioning
-    assert "rabbitmqctl_shared list_users --silent" in provisioning
-    assert "list_user_permissions" in provisioning
-    assert "| grep" not in provisioning
+    executable_source = "\n".join(
+        line
+        for line in provisioning.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+
+    assert "set -Eeuo pipefail" in executable_source
+    assert "rabbitmqctl_shared list_vhosts --silent" in executable_source
+    assert "rabbitmqctl_shared list_users --silent" in executable_source
+    assert "list_user_permissions" in executable_source
+    assert "| grep" not in executable_source
 
 
 def test_startup_orders_runtime_dependencies_before_consumers() -> None:
