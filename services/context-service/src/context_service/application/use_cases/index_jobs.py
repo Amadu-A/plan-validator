@@ -106,7 +106,6 @@ class EnqueueContextIndexUseCase:
             max_chunks=self._max_chunks,
             max_text_chars=self._max_chunk_chars,
         )
-
         now = self._clock.now()
 
         async with self._uow_factory() as uow:
@@ -114,10 +113,8 @@ class EnqueueContextIndexUseCase:
                 user_id=user_id,
                 context_id=context_id,
             )
-
             if context is None:
                 raise ProjectContextNotFoundError("Project Context was not found")
-
             if context.state is not ProjectContextState.ACTIVE:
                 raise ProjectContextConflictError("Project Context is not active")
 
@@ -125,10 +122,8 @@ class EnqueueContextIndexUseCase:
                 user_id=user_id,
                 source_id=source_id,
             )
-
             if source is None or source.context_id != context_id:
                 raise ContextSourceNotFoundError("Context source was not found")
-
             if source.state is ContextSourceState.DELETED:
                 raise ContextSourceConflictError("Context source is deleted")
 
@@ -153,7 +148,6 @@ class EnqueueContextIndexUseCase:
                 source_id=source_id,
                 fingerprint=fingerprint,
             )
-
             if existing is not None:
                 return EnqueueContextIndexResult(
                     job_id=existing.id,
@@ -182,22 +176,17 @@ class EnqueueContextIndexUseCase:
                 created_at=now,
                 updated_at=now,
             )
-
             await uow.jobs.add(job)
             await uow.commit()
 
         await self._publish_and_mark(job)
-
         return EnqueueContextIndexResult(
             job_id=job.id,
             fingerprint=fingerprint,
             reused=False,
         )
 
-    async def _publish_and_mark(
-        self,
-        job: ContextIndexJob,
-    ) -> None:
+    async def _publish_and_mark(self, job: ContextIndexJob) -> None:
         """Публикует job после commit; failed publish оставляет recoverable row."""
         try:
             await self._publisher.publish(
@@ -211,15 +200,9 @@ class EnqueueContextIndexUseCase:
 
         async with self._uow_factory() as uow:
             current = await uow.jobs.get_for_update(job.id)
-
             if current is None:
                 raise ContextIndexJobNotFoundError("Context indexing job disappeared")
-
-            await uow.jobs.save(
-                current.mark_dispatched(
-                    changed_at=self._clock.now(),
-                )
-            )
+            await uow.jobs.save(current.mark_dispatched(changed_at=self._clock.now()))
             await uow.commit()
 
 
@@ -248,7 +231,6 @@ class ClaimContextIndexJobUseCase:
         """Claim'ит job либо безопасно возвращает claimed=False."""
         async with self._uow_factory() as uow:
             job = await uow.jobs.get_for_update(job_id)
-
             if job is None:
                 raise ContextIndexJobNotFoundError("Context indexing job was not found")
 
@@ -257,15 +239,11 @@ class ClaimContextIndexJobUseCase:
                 changed_at=self._clock.now(),
                 lease_seconds=self._lease_seconds,
             )
-
             if claimed_job != job:
                 await uow.jobs.save(claimed_job)
                 await uow.commit()
 
-            return ClaimContextIndexResult(
-                job=claimed_job,
-                claimed=claimed,
-            )
+            return ClaimContextIndexResult(job=claimed_job, claimed=claimed)
 
 
 class HeartbeatContextIndexJobUseCase:
@@ -292,7 +270,6 @@ class HeartbeatContextIndexJobUseCase:
         """Продлевает только принадлежащий текущему worker lease."""
         async with self._uow_factory() as uow:
             job = await uow.jobs.get_for_update(job_id)
-
             if job is None:
                 raise ContextIndexJobNotFoundError("Context indexing job was not found")
 
@@ -303,7 +280,6 @@ class HeartbeatContextIndexJobUseCase:
             )
             await uow.jobs.save(updated)
             await uow.commit()
-
         return updated
 
 
@@ -334,14 +310,12 @@ class CompleteContextIndexJobUseCase:
 
         async with self._uow_factory() as uow:
             job = await uow.jobs.get_for_update(job_id)
-
             if job is None:
                 raise ContextIndexJobNotFoundError("Context indexing job was not found")
 
             if job.state is not ContextIndexJobState.RUNNING:
                 if job.state is ContextIndexJobState.SUCCEEDED:
                     return job
-
                 raise ContextIndexJobConflictError("Context indexing job is not running")
 
             if job.lease_owner != worker_id:
@@ -362,7 +336,6 @@ class CompleteContextIndexJobUseCase:
                 user_id=job.user_id,
                 source_id=job.source_id,
             )
-
             if source is None:
                 raise ContextSourceNotFoundError("Context source was not found")
 
@@ -370,7 +343,6 @@ class CompleteContextIndexJobUseCase:
                 user_id=job.user_id,
                 context_id=job.context_id,
             )
-
             if context is None:
                 raise ProjectContextNotFoundError("Project Context was not found")
 
@@ -388,17 +360,10 @@ class CompleteContextIndexJobUseCase:
                 chunk_count=len(job.chunks),
                 changed_at=now,
             )
-            succeeded = job.succeed(
-                changed_at=now,
-            )
+            succeeded = job.succeed(changed_at=now)
 
             await uow.sources.save(indexed_source)
-            await uow.contexts.save(
-                context.touch(
-                    changed_at=now,
-                    ttl=self._context_ttl,
-                )
-            )
+            await uow.contexts.save(context.touch(changed_at=now, ttl=self._context_ttl))
             await uow.jobs.save(succeeded)
             await uow.commit()
 
@@ -437,10 +402,8 @@ class FailContextIndexJobUseCase:
 
         async with self._uow_factory() as uow:
             job = await uow.jobs.get_for_update(job_id)
-
             if job is None:
                 raise ContextIndexJobNotFoundError("Context indexing job was not found")
-
             if job.is_terminal:
                 return job
 
@@ -454,16 +417,11 @@ class FailContextIndexJobUseCase:
                 )
 
             can_retry = transient and job.attempt < job.max_attempts and now < job.deadline_at
-
             if not can_retry:
-                updated = job.fail(
-                    changed_at=now,
-                    error_message=error_message,
-                )
+                updated = job.fail(changed_at=now, error_message=error_message)
             else:
                 delay_seconds = 0 if immediate_retry else self._retry_delay_seconds(job.attempt)
                 next_attempt_at = now + timedelta(seconds=delay_seconds)
-
                 if next_attempt_at >= job.deadline_at:
                     updated = job.fail(
                         changed_at=now,
@@ -478,20 +436,13 @@ class FailContextIndexJobUseCase:
 
             await uow.jobs.save(updated)
             await uow.commit()
-
         return updated
 
-    def _retry_delay_seconds(
-        self,
-        attempt: int,
-    ) -> int:
+    def _retry_delay_seconds(self, attempt: int) -> int:
         """Возвращает bounded exponential backoff."""
         exponent = max(attempt - 1, 0)
         calculated = self._retry_backoff_base_seconds * 2**exponent
-        return min(
-            calculated,
-            self._retry_backoff_max_seconds,
-        )
+        return min(calculated, self._retry_backoff_max_seconds)
 
 
 class ReconcileContextIndexJobsUseCase:
@@ -504,7 +455,6 @@ class ReconcileContextIndexJobsUseCase:
         publisher: ContextIndexJobPublisher,
         clock: Clock,
         retry_failure: FailContextIndexJobUseCase,
-        redispatch_seconds: int,
         batch_size: int,
     ) -> None:
         """Сохраняет reconciliation dependencies."""
@@ -512,19 +462,16 @@ class ReconcileContextIndexJobsUseCase:
         self._publisher = publisher
         self._clock = clock
         self._retry_failure = retry_failure
-        self._redispatch_seconds = redispatch_seconds
         self._batch_size = batch_size
 
     @log_execution_time("context.reconcile_index_jobs")
     async def execute(self) -> ReconcileContextJobsResult:
         """Выполняет одну bounded reconciliation iteration."""
         now = self._clock.now()
-        redispatch_before = now - timedelta(seconds=self._redispatch_seconds)
 
         async with self._uow_factory() as uow:
             candidates = await uow.jobs.list_recoverable(
                 now=now,
-                redispatch_before=redispatch_before,
                 limit=self._batch_size,
             )
 
@@ -552,7 +499,6 @@ class ReconcileContextIndexJobsUseCase:
                     error_message="stale_worker_lease_recovered",
                     immediate_retry=True,
                 )
-
                 if job.state is ContextIndexJobState.FAILED:
                     terminalized += 1
                     continue
@@ -562,8 +508,9 @@ class ReconcileContextIndexJobsUseCase:
                 ContextIndexJobState.RETRY_WAIT,
             }:
                 continue
-
             if job.next_attempt_at is not None and job.next_attempt_at > now:
+                continue
+            if job.dispatched_at is not None:
                 continue
 
             try:
@@ -585,35 +532,21 @@ class ReconcileContextIndexJobsUseCase:
             terminalized=terminalized,
         )
 
-    async def _mark_dispatched(
-        self,
-        job_id: UUID,
-    ) -> None:
+    async def _mark_dispatched(self, job_id: UUID) -> None:
         """Фиксирует successful republish без удержания DB lock на network I/O."""
         async with self._uow_factory() as uow:
             job = await uow.jobs.get_for_update(job_id)
-
             if job is None or job.is_terminal:
                 return
-
-            await uow.jobs.save(
-                job.mark_dispatched(
-                    changed_at=self._clock.now(),
-                )
-            )
+            await uow.jobs.save(job.mark_dispatched(changed_at=self._clock.now()))
             await uow.commit()
 
-    async def _terminalize_deadline(
-        self,
-        job_id: UUID,
-    ) -> None:
+    async def _terminalize_deadline(self, job_id: UUID) -> None:
         """Фиксирует абсолютный deadline независимо от Rabbit state."""
         async with self._uow_factory() as uow:
             job = await uow.jobs.get_for_update(job_id)
-
             if job is None or job.is_terminal:
                 return
-
             await uow.jobs.save(
                 job.fail(
                     changed_at=self._clock.now(),

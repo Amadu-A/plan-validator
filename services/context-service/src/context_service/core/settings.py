@@ -39,72 +39,29 @@ class ContextQueueSettings(BaseModel):
         min_length=1,
     )
     prefetch_count: int = Field(default=1, ge=1, le=1)
-
     message_ttl_ms: int = Field(
         default=15 * 60 * 1000,
         ge=60_000,
         le=60 * 60 * 1000,
     )
-
     execution_timeout_seconds: int = Field(
         default=10 * 60,
         ge=30,
         le=20 * 60,
     )
-
     job_deadline_seconds: int = Field(
         default=12 * 60,
         ge=60,
         le=25 * 60,
     )
-
-    max_attempts: int = Field(
-        default=3,
-        ge=1,
-        le=5,
-    )
-
-    lease_seconds: int = Field(
-        default=60,
-        ge=20,
-        le=300,
-    )
-
-    heartbeat_seconds: int = Field(
-        default=15,
-        ge=5,
-        le=120,
-    )
-
-    reconcile_seconds: int = Field(
-        default=5,
-        ge=1,
-        le=60,
-    )
-
-    redispatch_seconds: int = Field(
-        default=30,
-        ge=5,
-        le=300,
-    )
-
-    retry_backoff_base_seconds: int = Field(
-        default=5,
-        ge=1,
-        le=60,
-    )
-
-    retry_backoff_max_seconds: int = Field(
-        default=60,
-        ge=1,
-        le=300,
-    )
-
-    reconciliation_batch_size: int = Field(
-        default=50,
-        ge=1,
-        le=500,
-    )
+    max_attempts: int = Field(default=3, ge=1, le=5)
+    lease_seconds: int = Field(default=60, ge=20, le=300)
+    heartbeat_seconds: int = Field(default=15, ge=5, le=120)
+    reconcile_seconds: int = Field(default=5, ge=1, le=60)
+    retry_backoff_base_seconds: int = Field(default=5, ge=1, le=60)
+    retry_backoff_max_seconds: int = Field(default=60, ge=1, le=300)
+    reconciliation_batch_size: int = Field(default=50, ge=1, le=500)
+    graceful_shutdown_seconds: int = Field(default=45, ge=5, le=120)
 
     @model_validator(mode="after")
     def validate_recovery_contract(self) -> "ContextQueueSettings":
@@ -129,40 +86,68 @@ class ContextQueueSettings(BaseModel):
 class ContextRetentionSettings(BaseModel):
     """Retention временного T/PZ context."""
 
-    grace_hours: int = Field(
-        default=24,
-        ge=1,
-        le=168,
-    )
+    grace_hours: int = Field(default=24, ge=1, le=168)
 
 
 class ContextIndexingSettings(BaseModel):
     """Bounds normalized T/PZ indexing input."""
 
-    max_chunks_per_source: int = Field(
-        default=256,
-        ge=1,
-        le=1024,
-    )
-    max_chunk_chars: int = Field(
-        default=8000,
-        ge=128,
-        le=60000,
-    )
+    max_chunks_per_source: int = Field(default=256, ge=1, le=1024)
+    max_chunk_chars: int = Field(default=8000, ge=128, le=60000)
 
 
 class ContextEmbeddingSettings(BaseModel):
-    """Embedding identity compatibility future T/PZ collections."""
+    """Embedding compatibility и bounded RPC для T/PZ."""
 
     model_name: str = Field(
         default="Qwen/Qwen3-VL-Embedding-8B",
         min_length=1,
     )
-    vector_dimension: int = Field(
-        default=4096,
-        ge=64,
-        le=4096,
+    vector_dimension: int = Field(default=4096, ge=64, le=4096)
+    queue_name: str = Field(
+        default="plan-validator.gpu.embedding",
+        min_length=1,
     )
+    rpc_timeout_seconds: float = Field(default=480.0, gt=0, le=600)
+    index_instruction: str = Field(
+        default=(
+            "Represent this temporary project requirement fragment for semantic "
+            "retrieval. It is project context, not normative evidence."
+        ),
+        min_length=1,
+    )
+    query_instruction: str = Field(
+        default=(
+            "Represent this query for retrieval from temporary project context. "
+            "Retrieved T/PZ text is not normative evidence."
+        ),
+        min_length=1,
+    )
+
+
+class ContextQdrantSettings(BaseModel):
+    """Per-context temporary Qdrant collection contract."""
+
+    host: str = Field(default="qdrant", min_length=1)
+    http_port: int = Field(default=6333, ge=1, le=65535)
+    grpc_port: int = Field(default=6334, ge=1, le=65535)
+    prefer_grpc: bool = True
+    timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    collection_prefix: str = Field(
+        default="plan_validator",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9_]+$",
+    )
+
+
+class ContextSearchSettings(BaseModel):
+    """Bounds typed T/PZ search request."""
+
+    default_limit: int = Field(default=10, ge=1, le=50)
+    max_limit: int = Field(default=50, ge=1, le=100)
+    default_score_threshold: float = Field(default=0.3, ge=-1.0, le=1.0)
+    max_query_chars: int = Field(default=60000, ge=128, le=120000)
 
 
 class ContextSettings(CommonSettings):
@@ -180,6 +165,18 @@ class ContextSettings(CommonSettings):
     context_retention: ContextRetentionSettings = Field(default_factory=ContextRetentionSettings)
     context_indexing: ContextIndexingSettings = Field(default_factory=ContextIndexingSettings)
     context_embedding: ContextEmbeddingSettings = Field(default_factory=ContextEmbeddingSettings)
+    context_qdrant: ContextQdrantSettings = Field(default_factory=ContextQdrantSettings)
+    context_search: ContextSearchSettings = Field(default_factory=ContextSearchSettings)
+
+    @model_validator(mode="after")
+    def validate_runtime_timeout_contract(self) -> "ContextSettings":
+        """Не допускает embedding RPC дольше execution budget worker."""
+        if (
+            self.context_embedding.rpc_timeout_seconds
+            >= self.context_queue.execution_timeout_seconds
+        ):
+            raise ValueError("Context embedding RPC timeout must be shorter than execution timeout")
+        return self
 
     @field_validator(
         "postgres_password",
@@ -201,18 +198,9 @@ class ContextSettings(CommonSettings):
     @property
     def database_url(self) -> str:
         """Собирает SQLAlchemy URL без логирования password."""
-        user = quote(
-            self.context_database.user,
-            safe="",
-        )
-        password = quote(
-            self.postgres_password.get_secret_value(),
-            safe="",
-        )
-        database = quote(
-            self.context_database.database,
-            safe="",
-        )
+        user = quote(self.context_database.user, safe="")
+        password = quote(self.postgres_password.get_secret_value(), safe="")
+        database = quote(self.context_database.database, safe="")
 
         return (
             "postgresql+psycopg://"
@@ -223,18 +211,9 @@ class ContextSettings(CommonSettings):
     @property
     def broker_url(self) -> str:
         """Собирает AMQP URL без раскрытия password."""
-        user = quote(
-            self.context_broker.user,
-            safe="",
-        )
-        password = quote(
-            self.rabbitmq_password.get_secret_value(),
-            safe="",
-        )
-        virtual_host = quote(
-            self.context_broker.virtual_host,
-            safe="",
-        )
+        user = quote(self.context_broker.user, safe="")
+        password = quote(self.rabbitmq_password.get_secret_value(), safe="")
+        virtual_host = quote(self.context_broker.virtual_host, safe="")
 
         return (
             f"amqp://{user}:{password}@{self.context_broker.host}:"

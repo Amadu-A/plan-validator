@@ -2,6 +2,9 @@
 
 """Application use-cases Context Service."""
 
+from context_service.application.use_cases.cleanup_context import (
+    FinalizeProjectContextCleanupUseCase,
+)
 from context_service.application.use_cases.context_lifecycle import (
     CreateProjectContextUseCase,
     GetProjectContextUseCase,
@@ -19,6 +22,8 @@ from context_service.application.use_cases.index_jobs import (
     ReconcileContextIndexJobsUseCase,
     ReconcileContextJobsResult,
 )
+from context_service.application.use_cases.index_runtime import IndexContextSourceUseCase
+from context_service.application.use_cases.search_context import SearchProjectContextUseCase
 
 __all__ = [
     "ClaimContextIndexJobUseCase",
@@ -28,10 +33,13 @@ __all__ = [
     "EnqueueContextIndexResult",
     "EnqueueContextIndexUseCase",
     "FailContextIndexJobUseCase",
+    "FinalizeProjectContextCleanupUseCase",
     "GetProjectContextUseCase",
     "HeartbeatContextIndexJobUseCase",
+    "IndexContextSourceUseCase",
     "ReconcileContextIndexJobsUseCase",
     "ReconcileContextJobsResult",
     "RegisterContextSourceUseCase",
     "RequestProjectContextCleanupUseCase",
+    "SearchProjectContextUseCase",
 ]

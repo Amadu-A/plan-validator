@@ -41,3 +41,11 @@ class ContextDependencyError(ContextServiceError):
 
 class ContextJobPublishError(ContextDependencyError):
     """RabbitMQ не подтвердил доставку indexing command."""
+
+
+class ContextEmbeddingError(ContextDependencyError):
+    """Embedding RPC не выполнил bounded запрос."""
+
+
+class ContextVectorStoreError(ContextDependencyError):
+    """Qdrant operation временного Project Context завершилась ошибкой."""

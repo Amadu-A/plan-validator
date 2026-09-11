@@ -102,10 +102,12 @@ class ContextIndexJobRepository(Protocol):
         self,
         *,
         now: datetime,
-        redispatch_before: datetime,
         limit: int,
     ) -> list[ContextIndexJob]:
-        """Возвращает due retry, undispatched и stale-running jobs."""
+        """Возвращает lost publish, due retry, stale-running и expired jobs."""
+
+    async def has_open_for_context(self, *, context_id: UUID) -> bool:
+        """Проверяет, остались ли non-terminal jobs перед physical cleanup."""
 
     async def save(self, job: ContextIndexJob) -> None:
         """Сохраняет persistent job state."""
