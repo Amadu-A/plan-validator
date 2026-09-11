@@ -24,10 +24,18 @@ class EmbeddingModelSettings(BaseModel):
     max_job_items: int = Field(default=256, ge=1, le=1024)
     min_free_ram_gib: float = Field(default=20.0, ge=1.0, le=1024.0)
     min_free_vram_gib: float = Field(default=18.0, ge=1.0, le=128.0)
-    admission_wait_timeout_seconds: float = Field(default=1800.0, gt=0, le=7200)
+    admission_wait_timeout_seconds: float = Field(
+        default=480.0,
+        gt=0,
+        le=900,
+    )
     admission_poll_seconds: float = Field(default=1.0, gt=0, le=30)
     gpu_lease_path: Path = Path("/var/lock/plan-validator-gpu/gpu.lock")
-    gpu_lease_timeout_seconds: float = Field(default=1800.0, gt=0, le=7200)
+    gpu_lease_timeout_seconds: float = Field(
+        default=480.0,
+        gt=0,
+        le=900,
+    )
     gpu_lease_poll_seconds: float = Field(default=0.25, gt=0, le=30)
     dtype: EmbeddingDtype = "bfloat16"
 
@@ -53,11 +61,15 @@ class EmbeddingBrokerSettings(BaseModel):
 
 
 class EmbeddingQueueSettings(BaseModel):
-    """Описывает dedicated expensive GPU queue и RPC timeout."""
+    """Описывает dedicated expensive GPU queue и bounded RPC timeout."""
 
     name: str = Field(default="plan-validator.gpu.embedding", min_length=1)
     prefetch_count: int = Field(default=1, ge=1, le=1)
-    rpc_timeout_seconds: float = Field(default=1800.0, gt=0, le=7200)
+    rpc_timeout_seconds: float = Field(
+        default=600.0,
+        gt=0,
+        le=900,
+    )
 
 
 class EmbeddingSettings(CommonSettings):
@@ -78,7 +90,10 @@ class EmbeddingWorkerSettings(EmbeddingSettings):
 
     @field_validator("rabbitmq_password")
     @classmethod
-    def validate_rabbitmq_password(cls, value: SecretStr) -> SecretStr:
+    def validate_rabbitmq_password(
+        cls,
+        value: SecretStr,
+    ) -> SecretStr:
         """Запрещает placeholder вместо реального RabbitMQ password."""
         secret = value.get_secret_value()
 
@@ -90,9 +105,18 @@ class EmbeddingWorkerSettings(EmbeddingSettings):
     @property
     def broker_url(self) -> str:
         """Собирает AMQP URL без логирования credential."""
-        user = quote(self.embedding_broker.user, safe="")
-        password = quote(self.rabbitmq_password.get_secret_value(), safe="")
-        virtual_host = quote(self.embedding_broker.virtual_host, safe="")
+        user = quote(
+            self.embedding_broker.user,
+            safe="",
+        )
+        password = quote(
+            self.rabbitmq_password.get_secret_value(),
+            safe="",
+        )
+        virtual_host = quote(
+            self.embedding_broker.virtual_host,
+            safe="",
+        )
 
         return (
             f"amqp://{user}:{password}@{self.embedding_broker.host}:"

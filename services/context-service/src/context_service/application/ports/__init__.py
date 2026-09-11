@@ -1,0 +1,27 @@
+# services/context-service/src/context_service/application/ports/__init__.py
+
+"""Application ports Context Service."""
+
+from context_service.application.ports.clock import Clock
+from context_service.application.ports.job_publisher import (
+    ContextIndexJobPublisher,
+)
+from context_service.application.ports.repositories import (
+    ContextIndexJobRepository,
+    ContextSourceRepository,
+    ProjectContextRepository,
+)
+from context_service.application.ports.unit_of_work import (
+    ContextUnitOfWork,
+    ContextUnitOfWorkFactory,
+)
+
+__all__ = [
+    "Clock",
+    "ContextIndexJobPublisher",
+    "ContextIndexJobRepository",
+    "ContextSourceRepository",
+    "ContextUnitOfWork",
+    "ContextUnitOfWorkFactory",
+    "ProjectContextRepository",
+]

@@ -10,19 +10,27 @@ from collections.abc import Awaitable, Callable
 from aio_pika import DeliveryMode, Message
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage
 from plan_validator_common.observability import configure_logging, scoped_log_context
-from plan_validator_common.vector_codec import FLOAT32_BASE64_ENCODING, encode_float32_vectors
+from plan_validator_common.vector_codec import (
+    FLOAT32_BASE64_ENCODING,
+    encode_float32_vectors,
+)
 from pydantic import ValidationError
 
 from embedding_service.application.use_cases.embed_text import (
     EmbedTextsUseCase,
     EmbedTextUseCase,
 )
-from embedding_service.core.settings import EmbeddingWorkerSettings, load_embedding_worker_settings
+from embedding_service.core.settings import (
+    EmbeddingWorkerSettings,
+    load_embedding_worker_settings,
+)
 from embedding_service.domain.embedding import EmbeddingTelemetry
 from embedding_service.domain.exceptions import EmbeddingRuntimeError
 from embedding_service.infrastructure.gpu_lease import CrossProcessFileGpuLease
 from embedding_service.infrastructure.gpu_runtime import QwenEmbeddingRuntime
-from embedding_service.infrastructure.messaging.rabbitmq import connect_embedding_broker
+from embedding_service.infrastructure.messaging.rabbitmq import (
+    connect_embedding_broker,
+)
 from embedding_service.infrastructure.messaging.schemas import (
     EmbeddingBatchJobRequest,
     EmbeddingBatchJobSuccess,
@@ -45,8 +53,10 @@ def build_message_handler(
 ) -> Handler:
     """Создаёт stateless consumer handler single/batch GPU contracts."""
 
-    async def handle(message: AbstractIncomingMessage) -> None:
-        """Валидирует request, выполняет GPU job и отвечает через reply queue."""
+    async def handle(
+        message: AbstractIncomingMessage,
+    ) -> None:
+        """Валидирует request и никогда не создаёт infinite poison requeue."""
         request: EmbeddingJobRequest | EmbeddingBatchJobRequest | None = None
 
         try:
@@ -60,8 +70,14 @@ def build_message_handler(
             correlation_id = request.correlation_id
             job_id = str(request.job_id)
 
-            with scoped_log_context(correlation_id=correlation_id, job_id=job_id):
-                if isinstance(request, EmbeddingBatchJobRequest):
+            with scoped_log_context(
+                correlation_id=correlation_id,
+                job_id=job_id,
+            ):
+                if isinstance(
+                    request,
+                    EmbeddingBatchJobRequest,
+                ):
                     batch_result = await batch_use_case.execute(
                         job_id=request.job_id,
                         texts=request.texts,
@@ -101,43 +117,91 @@ def build_message_handler(
                     payload=response.model_dump_json(),
                 )
                 await message.ack()
-        except (ValidationError, EmbeddingRuntimeError, ValueError, json.JSONDecodeError) as exc:
-            failure = EmbeddingJobFailure(
-                job_id=request.job_id if request is not None else None,
-                error_type=type(exc).__name__,
-                message=_safe_error_message(exc),
+
+        except (
+            ValidationError,
+            EmbeddingRuntimeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            await _finish_with_failure(
+                channel=channel,
+                message=message,
+                request=request,
+                error=exc,
             )
 
-            try:
-                await _publish_response(
-                    channel=channel,
-                    message=message,
-                    payload=failure.model_dump_json(),
-                )
-            except Exception:
-                await message.nack(requeue=True)
-                raise
-
-            await message.ack()
-            _LOGGER.error(
-                "Embedding job failed",
+        except Exception as exc:
+            _LOGGER.exception(
+                "Unexpected embedding worker error",
                 extra={
-                    "event": "embedding_job_failed",
-                    "job_id": str(request.job_id) if request is not None else None,
+                    "event": "embedding_worker_unexpected_error",
+                    "job_id": (str(request.job_id) if request is not None else None),
                     "error_type": type(exc).__name__,
                 },
             )
-        except Exception:
-            _LOGGER.exception(
-                "Unexpected embedding worker error",
-                extra={"event": "embedding_worker_unexpected_error"},
+            await _finish_with_failure(
+                channel=channel,
+                message=message,
+                request=request,
+                error=exc,
             )
-            await message.nack(requeue=True)
 
     return handle
 
 
-def _telemetry_message(telemetry: EmbeddingTelemetry) -> EmbeddingTelemetryMessage:
+async def _finish_with_failure(
+    *,
+    channel: AbstractChannel,
+    message: AbstractIncomingMessage,
+    request: EmbeddingJobRequest | EmbeddingBatchJobRequest | None,
+    error: Exception,
+) -> None:
+    """Отвечает ошибкой и завершает delivery без бесконечного requeue."""
+    failure = EmbeddingJobFailure(
+        job_id=(request.job_id if request is not None else None),
+        error_type=type(error).__name__,
+        message=_safe_error_message(error),
+    )
+
+    response_published = False
+
+    if request is not None and message.reply_to:
+        try:
+            await _publish_response(
+                channel=channel,
+                message=message,
+                payload=failure.model_dump_json(),
+            )
+            response_published = True
+        except Exception:
+            _LOGGER.exception(
+                "Embedding failure response publish failed",
+                extra={
+                    "event": "embedding_failure_response_publish_failed",
+                    "job_id": str(request.job_id),
+                },
+            )
+
+    if response_published:
+        await message.ack()
+    else:
+        await message.reject(requeue=False)
+
+    _LOGGER.error(
+        "Embedding job failed",
+        extra={
+            "event": "embedding_job_failed",
+            "job_id": (str(request.job_id) if request is not None else None),
+            "error_type": type(error).__name__,
+            "redelivered": message.redelivered,
+        },
+    )
+
+
+def _telemetry_message(
+    telemetry: EmbeddingTelemetry,
+) -> EmbeddingTelemetryMessage:
     """Преобразует domain telemetry в transport-neutral RPC schema."""
     return EmbeddingTelemetryMessage(
         available_ram_bytes=telemetry.available_ram_bytes,
@@ -171,9 +235,17 @@ async def _publish_response(
     )
 
 
-def _safe_error_message(error: Exception) -> str:
+def _safe_error_message(
+    error: Exception,
+) -> str:
     """Не позволяет validation error вернуть исходный document text."""
-    if isinstance(error, (ValidationError, json.JSONDecodeError)):
+    if isinstance(
+        error,
+        (
+            ValidationError,
+            json.JSONDecodeError,
+        ),
+    ):
         return "Embedding job payload is invalid"
 
     return str(error)[:1000]
@@ -210,19 +282,24 @@ def build_use_cases(
     )
 
 
-async def run_worker(settings: EmbeddingWorkerSettings) -> None:
+async def run_worker(
+    settings: EmbeddingWorkerSettings,
+) -> None:
     """Подключается к shared broker и consume'ит ровно одну GPU queue."""
     single_use_case, batch_use_case = build_use_cases(settings)
     connection = await connect_embedding_broker(settings)
 
     async with connection:
         channel = await connection.channel()
+
         await channel.set_qos(prefetch_count=settings.embedding_queue.prefetch_count)
+
         queue = await channel.declare_queue(
             settings.embedding_queue.name,
             durable=True,
             auto_delete=False,
         )
+
         await queue.consume(
             build_message_handler(
                 single_use_case=single_use_case,
@@ -237,7 +314,7 @@ async def run_worker(settings: EmbeddingWorkerSettings) -> None:
             extra={
                 "event": "embedding_worker_started",
                 "queue": settings.embedding_queue.name,
-                "prefetch_count": settings.embedding_queue.prefetch_count,
+                "prefetch_count": (settings.embedding_queue.prefetch_count),
                 "model": settings.embedding_model.name,
             },
         )
@@ -248,6 +325,7 @@ async def run_worker(settings: EmbeddingWorkerSettings) -> None:
 def main() -> None:
     """Настраивает structured logging и запускает worker event loop."""
     settings = load_embedding_worker_settings()
+
     configure_logging(
         service_name=settings.service_name,
         level=settings.log_level.value,
@@ -257,6 +335,7 @@ def main() -> None:
         file_backup_count=settings.log_file_backup_count,
         retention_days=settings.log_retention_days,
     )
+
     asyncio.run(run_worker(settings))
 
 

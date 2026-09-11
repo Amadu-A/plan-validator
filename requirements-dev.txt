@@ -10,6 +10,7 @@
 -e ./services/api-gateway
 -e ./services/auth-service
 -e ./services/catalog-service
+-e ./services/context-service
 -e ./services/embedding-service
 -e ./services/retrieval-service
 

@@ -1,0 +1,23 @@
+# services/context-service/pyproject.toml
+#
+# Installable package временного Project Context Plan Validator.
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "plan-validator-context-service"
+version = "0.1.0"
+description = "Temporary Technical Assignment and Project Context Service."
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "plan-validator-common==0.1.0",
+    "pydantic==2.13.5",
+    "SQLAlchemy==2.0.52",
+    "alembic==1.19.2",
+    "psycopg[binary]==3.3.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/context_service"]
