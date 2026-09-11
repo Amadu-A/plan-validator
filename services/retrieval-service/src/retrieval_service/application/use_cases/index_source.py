@@ -2,6 +2,8 @@
 
 """Use-case crash-safe N/U source reindex lifecycle."""
 
+from contextlib import suppress
+
 from plan_validator_common.observability import log_execution_time
 
 from retrieval_service.application.ports.clock import Clock
@@ -139,15 +141,13 @@ class IndexManagedSourceUseCase:
                 await uow.source_indexes.save(indexed)
                 await uow.commit()
         except Exception:
-            try:
+            # Candidate без DB activation не участвует в search и может быть
+            # дочищен recovery/reindex retry. Не маскируем исходную ошибку.
+            with suppress(Exception):
                 await self._vector_store.delete_version(
                     source_id=job.source_id,
                     fingerprint=fingerprint,
                 )
-            except Exception:
-                # Candidate без DB activation не участвует в search и может быть
-                # дочищен recovery/reindex retry. Не маскируем исходную ошибку.
-                pass
             raise
 
         await self._vector_store.delete_obsolete_versions(

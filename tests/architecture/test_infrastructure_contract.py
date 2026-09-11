@@ -12,9 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def read_project_file(
-    relative_path: str,
-) -> str:
+def read_project_file(relative_path: str) -> str:
     """Читает project file для infrastructure architecture assertions."""
     return (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
 
@@ -31,7 +29,6 @@ def test_infrastructure_stage_files_exist() -> None:
         "scripts/check-infrastructure.sh",
         "scripts/up.sh",
     )
-
     missing_files = [
         relative_path
         for relative_path in required_files
@@ -44,7 +41,6 @@ def test_infrastructure_stage_files_exist() -> None:
 def test_compose_uses_project_specific_storage() -> None:
     """Проверяет наличие отдельных PostgreSQL/Qdrant и persistent volumes."""
     compose = read_project_file("compose.yaml")
-
     required_markers = (
         "postgres:16-alpine",
         "qdrant/qdrant:v1.19.0",
@@ -69,7 +65,6 @@ def test_compose_declares_shared_network_as_external() -> None:
 def test_compose_does_not_duplicate_shared_services() -> None:
     """Не позволяет добавить собственные Ollama, RabbitMQ или n8n."""
     compose = read_project_file("compose.yaml")
-
     forbidden_service_definitions = (
         "\n  ollama:\n",
         "\n  rabbitmq:\n",
@@ -83,7 +78,6 @@ def test_compose_does_not_duplicate_shared_services() -> None:
 def test_compose_has_bounded_container_logging() -> None:
     """Проверяет ограничение размера Docker stdout/stderr logs."""
     compose = read_project_file("compose.yaml")
-
     required_markers = (
         "driver: local",
         "PLAN_VALIDATOR_DOCKER_LOG_MAX_SIZE",
@@ -108,23 +102,31 @@ def test_application_services_do_not_duplicate_pydantic_environment() -> None:
     """Фиксирует отсутствие больших application `environment:` blocks."""
     compose = read_project_file("compose.yaml")
 
-    auth_start = compose.index("\n  auth-service:\n")
-    auth_end = compose.index("\n  auth-migrate:\n")
+    service_boundaries = (
+        ("auth-service", "auth-migrate"),
+        ("catalog-service", "catalog-migrate"),
+        ("catalog-outbox", "embedding-service"),
+        ("embedding-service", "embedding-worker"),
+        ("embedding-worker", "embedding-benchmark"),
+        ("retrieval-service", "retrieval-worker"),
+        ("retrieval-worker", "retrieval-migrate"),
+        ("api-gateway", None),
+    )
 
-    gateway_start = compose.index("\n  api-gateway:\n")
-    gateway_end = compose.index("\nnetworks:\n")
-
-    auth_block = compose[auth_start:auth_end]
-    gateway_block = compose[gateway_start:gateway_end]
-
-    assert "\n    environment:" not in auth_block
-    assert "\n    environment:" not in gateway_block
+    for service, next_service in service_boundaries:
+        start = compose.index(f"\n  {service}:\n")
+        end = (
+            compose.index(f"\n  {next_service}:\n")
+            if next_service is not None
+            else compose.index("\nnetworks:\n")
+        )
+        block = compose[start:end]
+        assert "\n    environment:" not in block
 
 
 def test_env_example_defines_only_two_required_project_secrets() -> None:
     """Фиксирует минимальную модель из двух private project secrets."""
     env_example = read_project_file(".env.example")
-
     required_secret_names = (
         "PLAN_VALIDATOR_POSTGRES_PASSWORD",
         "PLAN_VALIDATOR_RABBITMQ_PASSWORD",
@@ -173,7 +175,6 @@ def test_shared_checks_use_runtime_not_shared_repository_checkout() -> None:
 def test_rabbitmq_checks_do_not_short_circuit_runtime_queries() -> None:
     """Запрещает исполняемые `grep -q` pipelines с rabbitmqctl и pipefail."""
     provisioning = read_project_file("scripts/provision-rabbitmq.sh")
-
     executable_source = "\n".join(
         line
         for line in provisioning.splitlines()
@@ -187,16 +188,24 @@ def test_rabbitmq_checks_do_not_short_circuit_runtime_queries() -> None:
     assert "| grep" not in executable_source
 
 
-def test_startup_orders_runtime_dependencies_before_consumers() -> None:
-    """Фиксирует first-run order Infrastructure -> Gateway -> Auth -> Catalog."""
+def test_startup_orders_completed_stages_before_retrieval() -> None:
+    """Фиксирует first-run order Infrastructure→Gateway→Auth→Catalog→Embedding→Retrieval."""
     startup = read_project_file("scripts/up.sh")
-
     infrastructure_position = startup.index("./scripts/check-infrastructure.sh --fix")
     gateway_position = startup.index("./scripts/check-gateway.sh --fix")
     auth_position = startup.index("./scripts/check-auth.sh --fix")
     catalog_position = startup.index("./scripts/check-catalog.sh --fix")
+    embedding_position = startup.index("./scripts/check-embedding.sh --fix")
+    retrieval_position = startup.index("./scripts/check-retrieval.sh --fix")
 
-    assert infrastructure_position < gateway_position < auth_position < catalog_position
+    assert (
+        infrastructure_position
+        < gateway_position
+        < auth_position
+        < catalog_position
+        < embedding_position
+        < retrieval_position
+    )
 
 
 def test_bootstrap_does_not_print_generated_secrets() -> None:

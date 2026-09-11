@@ -1,4 +1,5 @@
-# services/retrieval-service/src/retrieval_service/infrastructure/database/repositories/source_index.py
+# services/retrieval-service/src/retrieval_service/infrastructure/database/
+# repositories/source_index.py
 
 """SQLAlchemy SourceIndexRepository implementation."""
 

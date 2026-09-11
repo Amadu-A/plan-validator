@@ -6,7 +6,6 @@ import ast
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
 CATALOG_ROOT = PROJECT_ROOT / "services" / "catalog-service" / "src" / "catalog_service"
 
 
@@ -16,7 +15,6 @@ def imported_root_modules(python_file: Path) -> set[str]:
         python_file.read_text(encoding="utf-8"),
         filename=str(python_file),
     )
-
     result: set[str] = set()
 
     for node in ast.walk(tree):
@@ -38,6 +36,7 @@ def test_catalog_application_domain_have_no_framework_coupling() -> None:
         "psycopg",
         "alembic",
         "httpx",
+        "aio_pika",
         "celery",
         "qdrant_client",
     }
@@ -45,7 +44,6 @@ def test_catalog_application_domain_have_no_framework_coupling() -> None:
     for layer in ("application", "domain"):
         for python_file in (CATALOG_ROOT / layer).rglob("*.py"):
             imports = imported_root_modules(python_file)
-
             assert imports.isdisjoint(forbidden), (
                 f"{python_file} imports forbidden modules: {imports & forbidden}"
             )
@@ -56,32 +54,29 @@ def test_catalog_repositories_are_split_by_resource() -> None:
     root = CATALOG_ROOT / "infrastructure" / "database" / "repositories"
 
     assert (root / "section.py").is_file()
-
     assert (root / "system_prompt.py").is_file()
-
     assert (root / "source.py").is_file()
-
     assert (root / "source_outbox.py").is_file()
-
     assert not (root / "crud.py").exists()
-
     assert not (root / "repositories.py").exists()
 
 
-def test_catalog_source_management_stays_before_indexing_stage() -> None:
-    """Разрешает Stage 7 storage/outbox, но запрещает Stage 8/9 coupling."""
-    source = "\n".join(path.read_text(encoding="utf-8") for path in CATALOG_ROOT.rglob("*.py"))
+def test_catalog_does_not_own_embedding_or_vector_retrieval() -> None:
+    """Разрешает outbox RabbitMQ adapter, но не Qdrant/GPU/indexing ownership."""
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in CATALOG_ROOT.rglob("*.py")
+    ).casefold()
 
     forbidden_markers = (
         "qdrant_client",
-        "aio_pika",
-        "celery",
-        "ollama",
-        "nvidia",
+        "sentence_transformers",
+        "torch.cuda",
+        "normalizedchunk",
+        "similarity_search",
     )
 
     for marker in forbidden_markers:
-        assert marker not in source.casefold()
+        assert marker not in source
 
 
 def test_catalog_source_routers_are_split_by_semantic_type() -> None:
@@ -89,68 +84,62 @@ def test_catalog_source_routers_are_split_by_semantic_type() -> None:
     routers = CATALOG_ROOT / "transport" / "routers"
 
     assert (routers / "normative_documents.py").is_file()
-
     assert (routers / "user_documents.py").is_file()
 
     internal_v1 = (routers / "internal_v1.py").read_text(encoding="utf-8")
-
     assert "normative_documents_router" in internal_v1
-
     assert "user_documents_router" in internal_v1
 
 
 def test_catalog_source_contract_does_not_expose_storage_key() -> None:
     """Не позволяет internal/public source schema раскрывать filesystem key."""
     schema = (CATALOG_ROOT / "transport" / "source_schemas.py").read_text(encoding="utf-8")
-
     assert "storage_key:" not in schema
 
 
-def test_catalog_source_outbox_is_transactional_but_not_dispatched() -> None:
-    """Фиксирует durable Stage 7 outbox без преждевременного Rabbit worker."""
+def test_catalog_source_outbox_is_transactional_and_dispatched_from_infrastructure() -> None:
+    """Фиксирует Stage 9 dispatcher при сохранении domain/application изоляции."""
     domain = (CATALOG_ROOT / "domain" / "source.py").read_text(encoding="utf-8")
-
     use_case = (CATALOG_ROOT / "application" / "use_cases" / "source_management.py").read_text(
         encoding="utf-8"
     )
+    dispatch_use_case = (
+        CATALOG_ROOT / "application" / "use_cases" / "dispatch_source_outbox.py"
+    ).read_text(encoding="utf-8")
+    dispatcher = (CATALOG_ROOT / "infrastructure" / "messaging" / "dispatcher.py").read_text(
+        encoding="utf-8"
+    )
+    publisher = (
+        CATALOG_ROOT / "infrastructure" / "messaging" / "source_event_publisher.py"
+    ).read_text(encoding="utf-8")
 
     assert "catalog.source.uploaded.v1" in domain
-
     assert "catalog.source.delete_requested.v1" in domain
-
     assert "source_outbox.add" in use_case
-
-    assert not (CATALOG_ROOT / "infrastructure" / "messaging" / "dispatcher.py").exists()
+    assert "SourceEventPublisher" in dispatch_use_case
+    assert "get_next_pending_for_update" in dispatch_use_case
+    assert "RabbitSourceEventPublisher" in dispatcher
+    assert "publisher_confirms=True" in publisher
+    assert "mandatory=True" in publisher
 
 
 def test_catalog_source_storage_uses_host_visible_persistent_directory() -> None:
     """Проверяет bind mount N/U storage и защиту runtime files от Git."""
     compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
-
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
-
     dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8")
 
     start = compose.index("\n  catalog-service:\n")
-
     end = compose.index("\n  catalog-migrate:\n")
-
     block = compose[start:end]
 
     assert "./data/catalog:/app/data/catalog" in block
-
     assert "catalog-source-data:" not in compose
-
     assert "\n    environment:" not in block
-
     assert "\n    env_file:" in block
-
     assert "data/catalog/*" in gitignore
-
     assert "!data/catalog/.gitkeep" in gitignore
-
     assert "data/catalog" in dockerignore
-
     assert (PROJECT_ROOT / "data" / "catalog" / ".gitkeep").is_file()
 
 
@@ -179,32 +168,40 @@ def test_catalog_migration_is_one_shot_ops_service() -> None:
     compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
 
     assert "catalog-migrate:" in compose
-
     assert "services/catalog-service/alembic.ini" in compose
-
     assert "- ops" in compose
 
 
 def test_catalog_service_is_internal_only() -> None:
     """Catalog Service не должен публиковать host port."""
     compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
-
     start = compose.index("\n  catalog-service:\n")
-
     end = compose.index("\n  catalog-migrate:\n")
-
     block = compose[start:end]
 
     assert "\n    ports:" not in block
     assert "\n    expose:" in block
 
 
+def test_catalog_outbox_is_separate_non_gpu_process() -> None:
+    """Dispatcher работает отдельно от HTTP Catalog и не получает GPU."""
+    compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
+    start = compose.index("\n  catalog-outbox:\n")
+    end = compose.index("\n  embedding-service:\n")
+    block = compose[start:end]
+
+    assert "catalog_service.infrastructure.messaging.dispatcher" in block
+    assert "\n    env_file:" in block
+    assert "\n    environment:" not in block
+    assert "gpus:" not in block
+    assert "- ai-shared" in block
+    assert "- private" in block
+
+
 def test_catalog_has_nested_section_prompt_and_source_models() -> None:
     """Фиксирует основную функциональность Stages 6-7."""
     section = (CATALOG_ROOT / "domain" / "section.py").read_text(encoding="utf-8")
-
     prompt = (CATALOG_ROOT / "domain" / "system_prompt.py").read_text(encoding="utf-8")
-
     source = (CATALOG_ROOT / "domain" / "source.py").read_text(encoding="utf-8")
 
     assert "parent_id" in section
@@ -230,14 +227,7 @@ def test_catalog_sources_have_docstrings() -> None:
 
         for node in ast.walk(tree):
             if (
-                isinstance(
-                    node,
-                    (
-                        ast.ClassDef,
-                        ast.FunctionDef,
-                        ast.AsyncFunctionDef,
-                    ),
-                )
+                isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
                 and ast.get_docstring(node) is None
             ):
                 missing.append(f"{python_file}:{node.lineno}:{node.name}")

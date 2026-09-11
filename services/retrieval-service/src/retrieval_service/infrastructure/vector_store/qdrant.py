@@ -2,7 +2,6 @@
 
 """Qdrant adapter shared persistent N/U managed-source corpus."""
 
-from typing import Any
 from uuid import UUID
 
 from qdrant_client import AsyncQdrantClient, models
@@ -58,7 +57,7 @@ class QdrantManagedSourceVectorStore(ManagedSourceVectorStore):
                     "Vector dimension does not match Qdrant collection contract"
                 )
 
-            payload: dict[str, Any] = {
+            payload: dict[str, object] = {
                 "user_id": str(source.user_id),
                 "kind": source.kind.value,
                 "section_id": str(source.section_id),
@@ -207,12 +206,20 @@ class QdrantManagedSourceVectorStore(ManagedSourceVectorStore):
             raise RetrievalVectorStoreError("Failed to delete managed-source vectors") from exc
 
     @staticmethod
-    def _match_value(key: str, value: str) -> models.FieldCondition:
+    def _match_value(
+        key: str,
+        value: str,
+    ) -> models.FieldCondition:
         """Создаёт exact keyword condition."""
-        return models.FieldCondition(key=key, match=models.MatchValue(value=value))
+        return models.FieldCondition(
+            key=key,
+            match=models.MatchValue(value=value),
+        )
 
     @staticmethod
-    def _to_search_hit(point: Any) -> SearchHit:
+    def _to_search_hit(
+        point: models.ScoredPoint,
+    ) -> SearchHit:
         """Преобразует Qdrant ScoredPoint payload в typed domain hit."""
         payload = point.payload or {}
 
@@ -239,12 +246,12 @@ class QdrantManagedSourceVectorStore(ManagedSourceVectorStore):
             ) from exc
 
 
-def _optional_int(value: Any) -> int | None:
+def _optional_int(value: object) -> int | None:
     """Нормализует optional integer payload field."""
     return None if value is None else int(value)
 
 
-def _optional_str(value: Any) -> str | None:
+def _optional_str(value: object) -> str | None:
     """Нормализует optional string payload field."""
     return None if value is None else str(value)
 
