@@ -17,7 +17,10 @@ from context_service.domain.models import (
 class ProjectContextRepository(Protocol):
     """Хранит owner-scoped temporary Project Context."""
 
-    async def add(self, context: ProjectContext) -> None:
+    async def add(
+        self,
+        context: ProjectContext,
+    ) -> None:
         """Добавляет новый context."""
 
     async def get_for_user(
@@ -36,14 +39,28 @@ class ProjectContextRepository(Protocol):
     ) -> ProjectContext | None:
         """Блокирует context row для lifecycle transition."""
 
-    async def save(self, context: ProjectContext) -> None:
+    async def list_cleanup_candidates(
+        self,
+        *,
+        now: datetime,
+        limit: int,
+    ) -> list[ProjectContext]:
+        """Возвращает expired active и cleanup_pending contexts."""
+
+    async def save(
+        self,
+        context: ProjectContext,
+    ) -> None:
         """Сохраняет актуальное immutable-domain состояние."""
 
 
 class ContextSourceRepository(Protocol):
     """Хранит T/PZ metadata временного context."""
 
-    async def add(self, source: ContextSource) -> None:
+    async def add(
+        self,
+        source: ContextSource,
+    ) -> None:
         """Добавляет source."""
 
     async def get_for_user(
@@ -71,17 +88,33 @@ class ContextSourceRepository(Protocol):
     ) -> ContextSource | None:
         """Возвращает единственный source данного semantic kind."""
 
-    async def save(self, source: ContextSource) -> None:
+    async def delete_for_context(
+        self,
+        *,
+        context_id: UUID,
+    ) -> None:
+        """Удаляет temporary T/PZ metadata после physical cleanup."""
+
+    async def save(
+        self,
+        source: ContextSource,
+    ) -> None:
         """Сохраняет source lifecycle."""
 
 
 class ContextIndexJobRepository(Protocol):
     """Хранит durable state expensive Context indexing jobs."""
 
-    async def add(self, job: ContextIndexJob) -> None:
+    async def add(
+        self,
+        job: ContextIndexJob,
+    ) -> None:
         """Добавляет persistent job."""
 
-    async def get(self, job_id: UUID) -> ContextIndexJob | None:
+    async def get(
+        self,
+        job_id: UUID,
+    ) -> ContextIndexJob | None:
         """Возвращает job без row lock."""
 
     async def get_for_update(
@@ -106,8 +139,22 @@ class ContextIndexJobRepository(Protocol):
     ) -> list[ContextIndexJob]:
         """Возвращает lost publish, due retry, stale-running и expired jobs."""
 
-    async def has_open_for_context(self, *, context_id: UUID) -> bool:
+    async def has_open_for_context(
+        self,
+        *,
+        context_id: UUID,
+    ) -> bool:
         """Проверяет, остались ли non-terminal jobs перед physical cleanup."""
 
-    async def save(self, job: ContextIndexJob) -> None:
+    async def delete_for_context(
+        self,
+        *,
+        context_id: UUID,
+    ) -> None:
+        """Удаляет durable jobs вместе с temporary normalized chunks."""
+
+    async def save(
+        self,
+        job: ContextIndexJob,
+    ) -> None:
         """Сохраняет persistent job state."""

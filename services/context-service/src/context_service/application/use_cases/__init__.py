@@ -4,6 +4,7 @@
 
 from context_service.application.use_cases.cleanup_context import (
     FinalizeProjectContextCleanupUseCase,
+    ListProjectContextCleanupCandidatesUseCase,
 )
 from context_service.application.use_cases.context_lifecycle import (
     CreateProjectContextUseCase,
@@ -47,6 +48,7 @@ __all__ = [
     "GetProjectContextUseCase",
     "HeartbeatContextIndexJobUseCase",
     "IndexContextSourceUseCase",
+    "ListProjectContextCleanupCandidatesUseCase",
     "ReconcileContextIndexJobsUseCase",
     "ReconcileContextJobsResult",
     "RegisterContextSourceUseCase",

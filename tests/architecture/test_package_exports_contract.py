@@ -31,10 +31,14 @@ from context_service.application.use_cases import (
     FinalizeProjectContextCleanupUseCase,
     GetContextIndexJobUseCase,
     IndexContextSourceUseCase,
+    ListProjectContextCleanupCandidatesUseCase,
     ReconcileContextIndexJobsUseCase,
     SearchProjectContextUseCase,
 )
-from context_service.domain import ContextSearchHit, ContextSearchQuery
+from context_service.domain import (
+    ContextSearchHit,
+    ContextSearchQuery,
+)
 from retrieval_service.application.ports import (
     EmbeddingGateway,
     IndexJobPublisher,
@@ -93,6 +97,7 @@ def test_context_stage10_exports_are_available() -> None:
     assert FinalizeProjectContextCleanupUseCase is not None
     assert GetContextIndexJobUseCase is not None
     assert IndexContextSourceUseCase is not None
+    assert ListProjectContextCleanupCandidatesUseCase is not None
     assert ReconcileContextIndexJobsUseCase is not None
     assert SearchProjectContextUseCase is not None
 

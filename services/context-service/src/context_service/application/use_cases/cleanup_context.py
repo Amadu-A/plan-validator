@@ -7,14 +7,52 @@ from uuid import UUID
 from plan_validator_common.observability import log_execution_time
 
 from context_service.application.ports.clock import Clock
-from context_service.application.ports.unit_of_work import ContextUnitOfWorkFactory
-from context_service.application.ports.vector_store import ContextVectorStore
-from context_service.domain.exceptions import ProjectContextNotFoundError
-from context_service.domain.models import ProjectContext, ProjectContextState
+from context_service.application.ports.unit_of_work import (
+    ContextUnitOfWorkFactory,
+)
+from context_service.application.ports.vector_store import (
+    ContextVectorStore,
+)
+from context_service.domain.exceptions import (
+    ProjectContextNotFoundError,
+)
+from context_service.domain.models import (
+    ProjectContext,
+    ProjectContextState,
+)
+
+
+class ListProjectContextCleanupCandidatesUseCase:
+    """Находит expired/retryable contexts для bounded maintenance iteration."""
+
+    def __init__(
+        self,
+        *,
+        uow_factory: ContextUnitOfWorkFactory,
+        clock: Clock,
+        batch_size: int,
+    ) -> None:
+        """Сохраняет cleanup scan dependencies."""
+        self._uow_factory = uow_factory
+        self._clock = clock
+        self._batch_size = batch_size
+
+    @log_execution_time("context.list_cleanup_candidates")
+    async def execute(
+        self,
+    ) -> tuple[ProjectContext, ...]:
+        """Возвращает bounded snapshot cleanup candidates."""
+        async with self._uow_factory() as uow:
+            contexts = await uow.contexts.list_cleanup_candidates(
+                now=self._clock.now(),
+                limit=self._batch_size,
+            )
+
+        return tuple(contexts)
 
 
 class FinalizeProjectContextCleanupUseCase:
-    """Удаляет Qdrant только когда context уже скрыт и jobs terminal."""
+    """Удаляет Qdrant и temporary DB payload только после terminal jobs."""
 
     def __init__(
         self,
@@ -35,12 +73,13 @@ class FinalizeProjectContextCleanupUseCase:
         user_id: UUID,
         context_id: UUID,
     ) -> ProjectContext:
-        """Физически удаляет collections только после завершения всех jobs."""
+        """Выполняет logical hide, physical delete и DB payload purge."""
         async with self._uow_factory() as uow:
             context = await uow.contexts.get_for_user_for_update(
                 user_id=user_id,
                 context_id=context_id,
             )
+
             if context is None:
                 raise ProjectContextNotFoundError("Project Context was not found")
 
@@ -48,8 +87,12 @@ class FinalizeProjectContextCleanupUseCase:
                 return context
 
             if context.state is ProjectContextState.ACTIVE:
-                context = context.request_cleanup(changed_at=self._clock.now())
+                context = context.request_cleanup(
+                    changed_at=self._clock.now(),
+                )
+
                 await uow.contexts.save(context)
+
                 await uow.commit()
 
         async with self._uow_factory() as uow:
@@ -58,25 +101,32 @@ class FinalizeProjectContextCleanupUseCase:
                     user_id=user_id,
                     context_id=context_id,
                 )
+
                 if pending is None:
                     raise ProjectContextNotFoundError("Project Context was not found")
+
                 return pending
 
         try:
             await self._vector_store.delete_context(context_id=context_id)
+
         except Exception as exc:
             async with self._uow_factory() as uow:
                 locked = await uow.contexts.get_for_user_for_update(
                     user_id=user_id,
                     context_id=context_id,
                 )
+
                 if locked is not None:
                     failed = locked.mark_cleanup_failed(
                         changed_at=self._clock.now(),
-                        error_message=f"{type(exc).__name__}: {exc}",
+                        error_message=(f"{type(exc).__name__}: {exc}"),
                     )
+
                     await uow.contexts.save(failed)
+
                     await uow.commit()
+
             raise
 
         async with self._uow_factory() as uow:
@@ -84,9 +134,26 @@ class FinalizeProjectContextCleanupUseCase:
                 user_id=user_id,
                 context_id=context_id,
             )
+
             if locked is None:
                 raise ProjectContextNotFoundError("Project Context was not found")
-            cleaned = locked.mark_cleaned(changed_at=self._clock.now())
+
+            if locked.state is ProjectContextState.CLEANED:
+                return locked
+
+            if await uow.jobs.has_open_for_context(context_id=context_id):
+                return locked
+
+            await uow.jobs.delete_for_context(context_id=context_id)
+
+            await uow.sources.delete_for_context(context_id=context_id)
+
+            cleaned = locked.mark_cleaned(
+                changed_at=self._clock.now(),
+            )
+
             await uow.contexts.save(cleaned)
+
             await uow.commit()
+
         return cleaned

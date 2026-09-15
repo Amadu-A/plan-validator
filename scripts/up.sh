@@ -36,6 +36,9 @@ printf '\n=== Plan Validator Embedding preparation ===\n'
 printf '\n=== Plan Validator Retrieval preparation ===\n'
 ./scripts/check-retrieval.sh --fix
 
+printf '\n=== Plan Validator Project Context preparation ===\n'
+./scripts/check-context.sh --fix
+
 printf '\n=== Plan Validator full Compose startup ===\n'
 docker compose up -d --build --wait
 
@@ -59,5 +62,8 @@ printf '\n=== Final Embedding validation ===\n'
 
 printf '\n=== Final Retrieval validation ===\n'
 ./scripts/check-retrieval.sh --check
+
+printf '\n=== Final Project Context validation ===\n'
+./scripts/check-context.sh --check
 
 printf '\nPLAN VALIDATOR STARTUP PASSED\n'
