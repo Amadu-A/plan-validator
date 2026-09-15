@@ -20,13 +20,16 @@ from context_service.application.ports import (
     ContextUnitOfWorkFactory,
     ContextVectorStore,
     EmbeddedContextTexts,
+    HealthProbe,
     ProjectContextRepository,
 )
 from context_service.application.use_cases import (
+    CheckContextReadinessUseCase,
     ClaimContextIndexJobUseCase,
     CreateProjectContextUseCase,
     EnqueueContextIndexUseCase,
     FinalizeProjectContextCleanupUseCase,
+    GetContextIndexJobUseCase,
     IndexContextSourceUseCase,
     ReconcileContextIndexJobsUseCase,
     SearchProjectContextUseCase,
@@ -72,7 +75,7 @@ def test_retrieval_stage9_exports_are_available() -> None:
 
 
 def test_context_stage10_exports_are_available() -> None:
-    """Проверяет Context ports/use-cases/domain exports, включая 10.2-A."""
+    """Проверяет Context ports/use-cases/domain exports."""
     assert ContextEmbeddingGateway is not None
     assert ContextIndexJobPublisher is not None
     assert ContextIndexJobRepository is not None
@@ -80,14 +83,18 @@ def test_context_stage10_exports_are_available() -> None:
     assert ContextUnitOfWorkFactory is not None
     assert ContextVectorStore is not None
     assert EmbeddedContextTexts is not None
+    assert HealthProbe is not None
     assert ProjectContextRepository is not None
 
+    assert CheckContextReadinessUseCase is not None
     assert ClaimContextIndexJobUseCase is not None
     assert CreateProjectContextUseCase is not None
     assert EnqueueContextIndexUseCase is not None
     assert FinalizeProjectContextCleanupUseCase is not None
+    assert GetContextIndexJobUseCase is not None
     assert IndexContextSourceUseCase is not None
     assert ReconcileContextIndexJobsUseCase is not None
     assert SearchProjectContextUseCase is not None
+
     assert ContextSearchHit is not None
     assert ContextSearchQuery is not None

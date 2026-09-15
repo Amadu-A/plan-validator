@@ -7,6 +7,7 @@ from context_service.application.ports.embedding_gateway import (
     ContextEmbeddingGateway,
     EmbeddedContextTexts,
 )
+from context_service.application.ports.health import HealthProbe
 from context_service.application.ports.job_publisher import ContextIndexJobPublisher
 from context_service.application.ports.repositories import (
     ContextIndexJobRepository,
@@ -29,5 +30,6 @@ __all__ = [
     "ContextUnitOfWorkFactory",
     "ContextVectorStore",
     "EmbeddedContextTexts",
+    "HealthProbe",
     "ProjectContextRepository",
 ]

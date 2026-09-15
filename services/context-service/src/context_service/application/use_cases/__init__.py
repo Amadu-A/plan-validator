@@ -22,10 +22,19 @@ from context_service.application.use_cases.index_jobs import (
     ReconcileContextIndexJobsUseCase,
     ReconcileContextJobsResult,
 )
-from context_service.application.use_cases.index_runtime import IndexContextSourceUseCase
-from context_service.application.use_cases.search_context import SearchProjectContextUseCase
+from context_service.application.use_cases.index_runtime import (
+    IndexContextSourceUseCase,
+)
+from context_service.application.use_cases.runtime_status import (
+    CheckContextReadinessUseCase,
+    GetContextIndexJobUseCase,
+)
+from context_service.application.use_cases.search_context import (
+    SearchProjectContextUseCase,
+)
 
 __all__ = [
+    "CheckContextReadinessUseCase",
     "ClaimContextIndexJobUseCase",
     "ClaimContextIndexResult",
     "CompleteContextIndexJobUseCase",
@@ -34,6 +43,7 @@ __all__ = [
     "EnqueueContextIndexUseCase",
     "FailContextIndexJobUseCase",
     "FinalizeProjectContextCleanupUseCase",
+    "GetContextIndexJobUseCase",
     "GetProjectContextUseCase",
     "HeartbeatContextIndexJobUseCase",
     "IndexContextSourceUseCase",
