@@ -110,6 +110,10 @@ def test_application_services_do_not_duplicate_pydantic_environment() -> None:
         ("embedding-worker", "embedding-benchmark"),
         ("retrieval-service", "retrieval-worker"),
         ("retrieval-worker", "retrieval-migrate"),
+        ("context-service", "context-worker"),
+        ("context-worker", "context-maintenance"),
+        ("context-maintenance", "context-migrate"),
+        ("context-migrate", "api-gateway"),
         ("api-gateway", None),
     )
 
@@ -121,6 +125,7 @@ def test_application_services_do_not_duplicate_pydantic_environment() -> None:
             else compose.index("\nnetworks:\n")
         )
         block = compose[start:end]
+
         assert "\n    environment:" not in block
 
 
@@ -175,28 +180,35 @@ def test_shared_checks_use_runtime_not_shared_repository_checkout() -> None:
 def test_rabbitmq_checks_do_not_short_circuit_runtime_queries() -> None:
     """Запрещает исполняемые `grep -q` pipelines с rabbitmqctl и pipefail."""
     provisioning = read_project_file("scripts/provision-rabbitmq.sh")
+
+    without_continuations = provisioning.replace("\\\n", " ")
+
     executable_source = "\n".join(
         line
-        for line in provisioning.splitlines()
+        for line in without_continuations.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
 
-    assert "set -Eeuo pipefail" in executable_source
-    assert "rabbitmqctl_shared list_vhosts --silent" in executable_source
-    assert "rabbitmqctl_shared list_users --silent" in executable_source
-    assert "list_user_permissions" in executable_source
-    assert "| grep" not in executable_source
+    normalized_source = " ".join(executable_source.split())
+
+    assert "set -Eeuo pipefail" in normalized_source
+    assert "rabbitmqctl_shared list_vhosts --silent" in normalized_source
+    assert "rabbitmqctl_shared list_users --silent" in normalized_source
+    assert "list_user_permissions" in normalized_source
+    assert "| grep" not in normalized_source
 
 
-def test_startup_orders_completed_stages_before_retrieval() -> None:
-    """Фиксирует first-run order Infrastructure→Gateway→Auth→Catalog→Embedding→Retrieval."""
+def test_startup_orders_completed_stages_through_context() -> None:
+    """Фиксирует first-run order Infrastructure→Gateway→Auth→Catalog→Embedding→Retrieval→Context."""
     startup = read_project_file("scripts/up.sh")
+
     infrastructure_position = startup.index("./scripts/check-infrastructure.sh --fix")
     gateway_position = startup.index("./scripts/check-gateway.sh --fix")
     auth_position = startup.index("./scripts/check-auth.sh --fix")
     catalog_position = startup.index("./scripts/check-catalog.sh --fix")
     embedding_position = startup.index("./scripts/check-embedding.sh --fix")
     retrieval_position = startup.index("./scripts/check-retrieval.sh --fix")
+    context_position = startup.index("./scripts/check-context.sh --fix")
 
     assert (
         infrastructure_position
@@ -205,7 +217,10 @@ def test_startup_orders_completed_stages_before_retrieval() -> None:
         < catalog_position
         < embedding_position
         < retrieval_position
+        < context_position
     )
+
+    assert "./scripts/check-context.sh --check" in startup
 
 
 def test_bootstrap_does_not_print_generated_secrets() -> None:
