@@ -9,6 +9,9 @@ from api_gateway.transport.routers.catalog import router as catalog_router
 from api_gateway.transport.routers.catalog_sources import (
     router as catalog_sources_router,
 )
+from api_gateway.transport.routers.project_contexts import (
+    router as project_contexts_router,
+)
 from api_gateway.transport.routers.system import router as system_router
 
 router = APIRouter(prefix="/api/v1")
@@ -16,4 +19,5 @@ router = APIRouter(prefix="/api/v1")
 router.include_router(auth_router)
 router.include_router(catalog_router)
 router.include_router(catalog_sources_router)
+router.include_router(project_contexts_router)
 router.include_router(system_router)

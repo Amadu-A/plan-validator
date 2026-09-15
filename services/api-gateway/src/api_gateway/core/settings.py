@@ -11,8 +11,15 @@ from pydantic import BaseModel, Field
 class GatewayHttpSettings(BaseModel):
     """Настройки HTTP server API Gateway."""
 
-    host: str = Field(default="0.0.0.0", min_length=1)
-    port: int = Field(default=8000, ge=1, le=65535)
+    host: str = Field(
+        default="0.0.0.0",
+        min_length=1,
+    )
+    port: int = Field(
+        default=8000,
+        ge=1,
+        le=65535,
+    )
     docs_enabled: bool = True
 
 
@@ -28,8 +35,15 @@ class GatewayUploadSettings(BaseModel):
 class InternalHttpSettings(BaseModel):
     """Настройки outbound HTTP clients internal service calls."""
 
-    connect_timeout_seconds: float = Field(default=3.0, gt=0)
-    read_timeout_seconds: float = Field(default=30.0, gt=0)
+    connect_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+    )
+    read_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=60.0,
+    )
 
 
 class AuthServiceSettings(BaseModel):
@@ -46,6 +60,15 @@ class CatalogServiceSettings(BaseModel):
 
     base_url: str = Field(
         default="http://catalog-service:8000",
+        min_length=1,
+    )
+
+
+class ContextServiceSettings(BaseModel):
+    """Docker-DNS endpoint trusted Context Service."""
+
+    base_url: str = Field(
+        default="http://context-service:8000",
         min_length=1,
     )
 
@@ -100,6 +123,9 @@ class GatewaySettings(CommonSettings):
     )
     catalog_service: CatalogServiceSettings = Field(
         default_factory=CatalogServiceSettings,
+    )
+    context_service: ContextServiceSettings = Field(
+        default_factory=ContextServiceSettings,
     )
     session_cookie: SessionCookieSettings = Field(
         default_factory=SessionCookieSettings,

@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 
 from api_gateway.application.auth_service import AuthServiceClient
 from api_gateway.application.catalog_service import CatalogServiceClient
-from api_gateway.application.catalog_sources import CatalogSourceServiceClient
+from api_gateway.application.catalog_sources import (
+    CatalogSourceServiceClient,
+)
+from api_gateway.application.context_service import (
+    ContextServiceClient,
+)
 from api_gateway.application.internal_service import InternalServiceClient
 from api_gateway.application.system_info import GetSystemInfoUseCase
 from api_gateway.core.settings import GatewaySettings
@@ -15,7 +20,12 @@ from api_gateway.infrastructure.catalog_client import HttpCatalogServiceClient
 from api_gateway.infrastructure.catalog_source_client import (
     HttpCatalogSourceServiceClient,
 )
-from api_gateway.infrastructure.http_client import HttpInternalServiceClient
+from api_gateway.infrastructure.context_client import (
+    HttpContextServiceClient,
+)
+from api_gateway.infrastructure.http_client import (
+    HttpInternalServiceClient,
+)
 
 
 @dataclass(slots=True)
@@ -27,6 +37,8 @@ class GatewayContainer:
     auth_service: AuthServiceClient
     catalog_service: CatalogServiceClient
     catalog_sources: CatalogSourceServiceClient
+    context_service: ContextServiceClient
+
     _ready: bool = field(
         default=False,
         init=False,
@@ -63,6 +75,7 @@ class GatewayContainer:
         await self.auth_service.aclose()
         await self.catalog_service.aclose()
         await self.catalog_sources.aclose()
+        await self.context_service.aclose()
 
 
 def build_container(
@@ -94,10 +107,17 @@ def build_container(
         read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
     )
 
+    context_service = HttpContextServiceClient(
+        base_url=settings.context_service.base_url,
+        connect_timeout_seconds=(settings.internal_http.connect_timeout_seconds),
+        read_timeout_seconds=(settings.internal_http.read_timeout_seconds),
+    )
+
     return GatewayContainer(
         settings=settings,
         system_info=system_info,
         auth_service=auth_service,
         catalog_service=catalog_service,
         catalog_sources=catalog_sources,
+        context_service=context_service,
     )
