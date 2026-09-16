@@ -139,6 +139,13 @@ class ContextIndexJobRepository(Protocol):
     ) -> list[ContextIndexJob]:
         """Возвращает lost publish, due retry, stale-running и expired jobs."""
 
+    async def list_waiting_for_context_for_update(
+        self,
+        *,
+        context_id: UUID,
+    ) -> list[ContextIndexJob]:
+        """Блокирует QUEUED/RETRY_WAIT jobs для proactive cleanup cancellation."""
+
     async def has_open_for_context(
         self,
         *,

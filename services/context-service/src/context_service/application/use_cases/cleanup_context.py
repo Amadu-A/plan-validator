@@ -21,6 +21,8 @@ from context_service.domain.models import (
     ProjectContextState,
 )
 
+_CLEANUP_CANCEL_REASON = "project_context_cleanup_requested"
+
 
 class ListProjectContextCleanupCandidatesUseCase:
     """Находит expired/retryable contexts для bounded maintenance iteration."""
@@ -52,7 +54,7 @@ class ListProjectContextCleanupCandidatesUseCase:
 
 
 class FinalizeProjectContextCleanupUseCase:
-    """Удаляет Qdrant и temporary DB payload только после terminal jobs."""
+    """Отменяет waiting jobs и очищает context после завершения RUNNING jobs."""
 
     def __init__(
         self,
@@ -73,7 +75,7 @@ class FinalizeProjectContextCleanupUseCase:
         user_id: UUID,
         context_id: UUID,
     ) -> ProjectContext:
-        """Выполняет logical hide, physical delete и DB payload purge."""
+        """Скрывает context, отменяет ожидание и выполняет safe physical cleanup."""
         async with self._uow_factory() as uow:
             context = await uow.contexts.get_for_user_for_update(
                 user_id=user_id,
@@ -96,12 +98,36 @@ class FinalizeProjectContextCleanupUseCase:
                 await uow.commit()
 
         async with self._uow_factory() as uow:
-            if await uow.jobs.has_open_for_context(context_id=context_id):
+            waiting_jobs = await uow.jobs.list_waiting_for_context_for_update(
+                context_id=context_id,
+            )
+
+            if waiting_jobs:
+                changed_at = self._clock.now()
+
+                for job in waiting_jobs:
+                    canceled = job.cancel(
+                        changed_at=changed_at,
+                        reason=_CLEANUP_CANCEL_REASON,
+                    )
+                    await uow.jobs.save(canceled)
+
+            has_open_jobs = await uow.jobs.has_open_for_context(
+                context_id=context_id,
+            )
+
+            pending: ProjectContext | None = None
+
+            if has_open_jobs:
                 pending = await uow.contexts.get_for_user(
                     user_id=user_id,
                     context_id=context_id,
                 )
 
+            if waiting_jobs:
+                await uow.commit()
+
+            if has_open_jobs:
                 if pending is None:
                     raise ProjectContextNotFoundError("Project Context was not found")
 

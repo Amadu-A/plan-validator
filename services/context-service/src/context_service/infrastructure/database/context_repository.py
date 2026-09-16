@@ -439,6 +439,31 @@ class SqlAlchemyContextIndexJobRepository:
 
         return [self._to_domain(model) for model in models]
 
+    async def list_waiting_for_context_for_update(
+        self,
+        *,
+        context_id: UUID,
+    ) -> list[ContextIndexJob]:
+        """Блокирует только jobs, которые cleanup может отменить до исполнения."""
+        waiting_values = (
+            ContextIndexJobState.QUEUED.value,
+            ContextIndexJobState.RETRY_WAIT.value,
+        )
+
+        statement = (
+            select(ContextIndexJobModel)
+            .where(
+                ContextIndexJobModel.context_id == context_id,
+                ContextIndexJobModel.state.in_(waiting_values),
+            )
+            .order_by(ContextIndexJobModel.created_at.asc())
+            .with_for_update()
+        )
+
+        models = list((await self._session.scalars(statement)).all())
+
+        return [self._to_domain(model) for model in models]
+
     async def has_open_for_context(
         self,
         *,
