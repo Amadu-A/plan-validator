@@ -4,8 +4,9 @@
 # Идемпотентно создаёт project-specific RabbitMQ resources внутри shared broker.
 # Все policies ограничены virtual host /plan-validator.
 #
-# TTL ограничивает только queued/ready messages. Unacked execution ограничивается
-# отдельно application deadline, lease/heartbeat, reconciliation и process drain.
+# TTL ограничивает queued/ready messages, а consumer-timeout ограничивает время
+# unacked delivery. Application deadline, lease/heartbeat, reconciliation и
+# graceful drain остаются основной прикладной recovery-защитой.
 
 set -Eeuo pipefail
 
@@ -22,11 +23,13 @@ WORK_QUEUE_POLICY_NAME="plan-validator-work-queue-ttl"
 WORK_QUEUE_POLICY_PATTERN='^(plan-validator\.gpu\.embedding|plan-validator\.retrieval\.index|plan-validator\.context\.index)$'
 WORK_QUEUE_POLICY_PRIORITY="100"
 WORK_QUEUE_TTL_MS=""
+WORK_QUEUE_CONSUMER_TIMEOUT_MS=""
 
 CATALOG_QUEUE_POLICY_NAME="plan-validator-catalog-event-queue-ttl"
 CATALOG_QUEUE_POLICY_PATTERN='^plan-validator\.retrieval\.catalog-events$'
 CATALOG_QUEUE_POLICY_PRIORITY="90"
 CATALOG_QUEUE_TTL_MS=""
+CATALOG_QUEUE_CONSUMER_TIMEOUT_MS=""
 
 validate_mode() {
   case "${MODE}" in
@@ -69,7 +72,16 @@ load_project_environment() {
 
 load_policy_settings() {
   WORK_QUEUE_TTL_MS="${PLAN_VALIDATOR_RABBITMQ_WORK_QUEUE_TTL_MS:-900000}"
-  CATALOG_QUEUE_TTL_MS="${PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_TTL_MS:-604800000}"
+  WORK_QUEUE_CONSUMER_TIMEOUT_MS="${
+    PLAN_VALIDATOR_RABBITMQ_WORK_QUEUE_CONSUMER_TIMEOUT_MS:-720000
+  }"
+
+  CATALOG_QUEUE_TTL_MS="${
+    PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_TTL_MS:-604800000
+  }"
+  CATALOG_QUEUE_CONSUMER_TIMEOUT_MS="${
+    PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_CONSUMER_TIMEOUT_MS:-300000
+  }"
 
   if [[ ! "${WORK_QUEUE_TTL_MS}" =~ ^[0-9]+$ ]]; then
     printf 'ERROR: invalid work queue TTL: %s\n' \
@@ -91,6 +103,28 @@ load_policy_settings() {
   if (( CATALOG_QUEUE_TTL_MS <= WORK_QUEUE_TTL_MS )); then
     printf 'ERROR: Catalog lifecycle TTL must exceed work queue TTL.\n' >&2
     exit 9
+  fi
+
+  if [[ ! "${WORK_QUEUE_CONSUMER_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
+    printf 'ERROR: invalid work queue consumer timeout: %s\n' \
+      "${WORK_QUEUE_CONSUMER_TIMEOUT_MS}" >&2
+    exit 26
+  fi
+
+  if [[ ! "${CATALOG_QUEUE_CONSUMER_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
+    printf 'ERROR: invalid Catalog consumer timeout: %s\n' \
+      "${CATALOG_QUEUE_CONSUMER_TIMEOUT_MS}" >&2
+    exit 27
+  fi
+
+  if (( WORK_QUEUE_CONSUMER_TIMEOUT_MS < 300000 )); then
+    printf 'ERROR: work queue consumer timeout must be at least 300000 ms.\n' >&2
+    exit 28
+  fi
+
+  if (( CATALOG_QUEUE_CONSUMER_TIMEOUT_MS < 300000 )); then
+    printf 'ERROR: Catalog consumer timeout must be at least 300000 ms.\n' >&2
+    exit 29
   fi
 }
 
@@ -233,7 +267,8 @@ rabbitmq_policy_matches() {
   local expected_name="$1"
   local expected_pattern="$2"
   local expected_ttl="$3"
-  local expected_priority="$4"
+  local expected_consumer_timeout="$4"
+  local expected_priority="$5"
 
   local output
   local vhost_name
@@ -282,6 +317,7 @@ rabbitmq_policy_matches() {
       && "${apply_to}" == "queues" \
       && "${priority}" == "${expected_priority}" \
       && "${compact_definition}" == *"\"message-ttl\":${expected_ttl}"* \
+      && "${compact_definition}" == *"\"consumer-timeout\":${expected_consumer_timeout}"* \
     ]]; then
       return 0
     fi
@@ -296,7 +332,8 @@ apply_queue_policy() {
   local policy_name="$1"
   local pattern="$2"
   local ttl_ms="$3"
-  local priority="$4"
+  local consumer_timeout_ms="$4"
+  local priority="$5"
 
   rabbitmqctl_shared \
     set_policy \
@@ -305,11 +342,12 @@ apply_queue_policy() {
     --apply-to queues \
     "${policy_name}" \
     "${pattern}" \
-    "{\"message-ttl\":${ttl_ms}}"
+    "{\"message-ttl\":${ttl_ms},\"consumer-timeout\":${consumer_timeout_ms}}"
 
-  printf '[FIX] RabbitMQ policy synchronized: %s ttl=%sms\n' \
+  printf '[FIX] RabbitMQ policy synchronized: %s ttl=%sms consumer-timeout=%sms\n' \
     "${policy_name}" \
-    "${ttl_ms}"
+    "${ttl_ms}" \
+    "${consumer_timeout_ms}"
 }
 
 apply_rabbitmq_fixes() {
@@ -375,12 +413,14 @@ apply_rabbitmq_fixes() {
     "${WORK_QUEUE_POLICY_NAME}" \
     "${WORK_QUEUE_POLICY_PATTERN}" \
     "${WORK_QUEUE_TTL_MS}" \
+    "${WORK_QUEUE_CONSUMER_TIMEOUT_MS}" \
     "${WORK_QUEUE_POLICY_PRIORITY}"
 
   apply_queue_policy \
     "${CATALOG_QUEUE_POLICY_NAME}" \
     "${CATALOG_QUEUE_POLICY_PATTERN}" \
     "${CATALOG_QUEUE_TTL_MS}" \
+    "${CATALOG_QUEUE_CONSUMER_TIMEOUT_MS}" \
     "${CATALOG_QUEUE_POLICY_PRIORITY}"
 }
 
@@ -448,16 +488,18 @@ check_rabbitmq_project_resources() {
 check_queue_policies() {
   local policy_status
 
-  printf '\n=== RabbitMQ queue TTL policies ===\n'
+  printf '\n=== RabbitMQ queue reliability policies ===\n'
 
   if rabbitmq_policy_matches \
     "${WORK_QUEUE_POLICY_NAME}" \
     "${WORK_QUEUE_POLICY_PATTERN}" \
     "${WORK_QUEUE_TTL_MS}" \
+    "${WORK_QUEUE_CONSUMER_TIMEOUT_MS}" \
     "${WORK_QUEUE_POLICY_PRIORITY}"
   then
-    printf '[OK] work queue TTL policy: %sms\n' \
-      "${WORK_QUEUE_TTL_MS}"
+    printf '[OK] work queue policy: ttl=%sms consumer-timeout=%sms\n' \
+      "${WORK_QUEUE_TTL_MS}" \
+      "${WORK_QUEUE_CONSUMER_TIMEOUT_MS}"
   else
     policy_status=$?
 
@@ -465,7 +507,7 @@ check_queue_policies() {
       exit 22
     fi
 
-    printf 'ERROR: work queue TTL policy is missing or invalid.\n' >&2
+    printf 'ERROR: work queue reliability policy is missing or invalid.\n' >&2
     exit 23
   fi
 
@@ -473,10 +515,12 @@ check_queue_policies() {
     "${CATALOG_QUEUE_POLICY_NAME}" \
     "${CATALOG_QUEUE_POLICY_PATTERN}" \
     "${CATALOG_QUEUE_TTL_MS}" \
+    "${CATALOG_QUEUE_CONSUMER_TIMEOUT_MS}" \
     "${CATALOG_QUEUE_POLICY_PRIORITY}"
   then
-    printf '[OK] Catalog lifecycle queue TTL policy: %sms\n' \
-      "${CATALOG_QUEUE_TTL_MS}"
+    printf '[OK] Catalog lifecycle policy: ttl=%sms consumer-timeout=%sms\n' \
+      "${CATALOG_QUEUE_TTL_MS}" \
+      "${CATALOG_QUEUE_CONSUMER_TIMEOUT_MS}"
   else
     policy_status=$?
 
@@ -484,7 +528,7 @@ check_queue_policies() {
       exit 24
     fi
 
-    printf 'ERROR: Catalog lifecycle queue TTL policy is missing or invalid.\n' >&2
+    printf 'ERROR: Catalog lifecycle reliability policy is missing or invalid.\n' >&2
     exit 25
   fi
 }

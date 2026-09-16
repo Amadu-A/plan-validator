@@ -12,8 +12,8 @@ def _read(relative_path: str) -> str:
     return (_ROOT / relative_path).read_text(encoding="utf-8")
 
 
-def test_project_rabbitmq_has_separate_work_and_lifecycle_ttl_policies() -> None:
-    """Work messages expire быстро, Catalog lifecycle живёт существенно дольше."""
+def test_project_rabbitmq_has_combined_ttl_and_consumer_timeout_policies() -> None:
+    """TTL и delivery timeout объединены в policies каждой группы очередей."""
     script = _read("scripts/provision-rabbitmq.sh")
     env = _read(".env.example")
 
@@ -31,7 +31,31 @@ def test_project_rabbitmq_has_separate_work_and_lifecycle_ttl_policies() -> None
     assert f"CATALOG_QUEUE_POLICY_PATTERN='{expected_catalog_pattern}'" in script
 
     assert "PLAN_VALIDATOR_RABBITMQ_WORK_QUEUE_TTL_MS=900000" in env
+    assert "PLAN_VALIDATOR_RABBITMQ_WORK_QUEUE_CONSUMER_TIMEOUT_MS=720000" in env
     assert "PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_TTL_MS=604800000" in env
+    assert "PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_CONSUMER_TIMEOUT_MS=300000" in env
+
+    start = script.index("apply_queue_policy() {")
+    end = script.index("apply_rabbitmq_fixes() {")
+    policy_apply = script[start:end]
+
+    assert policy_apply.count("set_policy") == 1
+    assert r"\"message-ttl\":${ttl_ms}" in policy_apply
+    assert r"\"consumer-timeout\":${consumer_timeout_ms}" in policy_apply
+
+
+def test_rabbitmq_policy_validation_checks_ttl_and_consumer_timeout() -> None:
+    """Immutable check проверяет оба параметра уже применённой policy."""
+    script = _read("scripts/provision-rabbitmq.sh")
+
+    start = script.index("rabbitmq_policy_matches() {")
+    end = script.index("apply_queue_policy() {")
+    policy_check = script[start:end]
+
+    assert "expected_ttl" in policy_check
+    assert "expected_consumer_timeout" in policy_check
+    assert r"\"message-ttl\":${expected_ttl}" in policy_check
+    assert r"\"consumer-timeout\":${expected_consumer_timeout}" in policy_check
 
 
 def test_rabbitmq_policy_validation_uses_rabbitmq_41_cli_contract() -> None:
