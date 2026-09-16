@@ -22,7 +22,7 @@ async def check() -> None:
     database_probe = SqlAlchemyDatabaseHealthProbe(session_factory)
 
     try:
-        if not await database_probe.ready():
+        if not await database_probe.is_ready():
             raise RuntimeError("Catalog PostgreSQL is not ready")
 
         connection = await connect_robust(

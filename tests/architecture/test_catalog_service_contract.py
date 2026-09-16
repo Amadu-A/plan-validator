@@ -123,6 +123,20 @@ def test_catalog_source_outbox_is_transactional_and_dispatched_from_infrastructu
     assert "mandatory=True" in publisher
 
 
+def test_catalog_outbox_healthcheck_uses_database_health_contract() -> None:
+    """Фиксирует единый is_ready contract между DB probe и outbox healthcheck."""
+    database_health = (CATALOG_ROOT / "infrastructure" / "database" / "health.py").read_text(
+        encoding="utf-8"
+    )
+    outbox_health = (CATALOG_ROOT / "infrastructure" / "messaging" / "healthcheck.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "async def is_ready(" in database_health
+    assert "await database_probe.is_ready()" in outbox_health
+    assert "database_probe.ready()" not in outbox_health
+
+
 def test_catalog_source_storage_uses_host_visible_persistent_directory() -> None:
     """Проверяет bind mount N/U storage и защиту runtime files от Git."""
     compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
