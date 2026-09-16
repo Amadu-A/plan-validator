@@ -35,6 +35,29 @@ def test_project_rabbitmq_has_combined_ttl_and_consumer_timeout_policies() -> No
     assert "PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_TTL_MS=604800000" in env
     assert "PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_CONSUMER_TIMEOUT_MS=300000" in env
 
+    start = script.index("load_policy_settings() {")
+    end = script.index("discover_shared_rabbitmq() {")
+    policy_settings = script[start:end]
+
+    assert '"${\n' not in policy_settings
+    assert (
+        'WORK_QUEUE_TTL_MS="${PLAN_VALIDATOR_RABBITMQ_WORK_QUEUE_TTL_MS:-900000}"'
+        in policy_settings
+    )
+    assert (
+        'WORK_QUEUE_CONSUMER_TIMEOUT_MS="'
+        '${PLAN_VALIDATOR_RABBITMQ_WORK_QUEUE_CONSUMER_TIMEOUT_MS:-720000}"' in policy_settings
+    )
+    assert (
+        'CATALOG_QUEUE_TTL_MS="'
+        '${PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_TTL_MS:-604800000}"' in policy_settings
+    )
+    assert (
+        'CATALOG_QUEUE_CONSUMER_TIMEOUT_MS="'
+        '${PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_CONSUMER_TIMEOUT_MS:-300000}"'
+        in policy_settings
+    )
+
     start = script.index("apply_queue_policy() {")
     end = script.index("apply_rabbitmq_fixes() {")
     policy_apply = script[start:end]
