@@ -236,6 +236,7 @@ rabbitmq_policy_matches() {
   local expected_priority="$4"
 
   local output
+  local vhost_name
   local policy_name
   local pattern
   local apply_to
@@ -247,12 +248,7 @@ rabbitmq_policy_matches() {
     rabbitmqctl_shared \
       list_policies \
       -p "${RABBITMQ_VHOST}" \
-      --silent \
-      name \
-      pattern \
-      apply-to \
-      definition \
-      priority
+      --silent
   )"; then
     :
   else
@@ -261,12 +257,17 @@ rabbitmq_policy_matches() {
   fi
 
   while IFS=$'\t' read -r \
+    vhost_name \
     policy_name \
     pattern \
     apply_to \
     definition \
     priority
   do
+    if [[ "${vhost_name}" != "${RABBITMQ_VHOST}" ]]; then
+      continue
+    fi
+
     if [[ "${policy_name}" != "${expected_name}" ]]; then
       continue
     fi

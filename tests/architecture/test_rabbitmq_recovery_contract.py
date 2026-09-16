@@ -34,6 +34,29 @@ def test_project_rabbitmq_has_separate_work_and_lifecycle_ttl_policies() -> None
     assert "PLAN_VALIDATOR_RABBITMQ_CATALOG_EVENT_QUEUE_TTL_MS=604800000" in env
 
 
+def test_rabbitmq_policy_validation_uses_rabbitmq_41_cli_contract() -> None:
+    """list_policies не получает неподдерживаемый RabbitMQ 4.1 список колонок."""
+    script = _read("scripts/provision-rabbitmq.sh")
+
+    start = script.index("rabbitmq_policy_matches() {")
+    end = script.index("apply_queue_policy() {")
+    policy_check = script[start:end]
+
+    assert "list_policies" in policy_check
+    assert '-p "${RABBITMQ_VHOST}"' in policy_check
+    assert "--silent" in policy_check
+
+    assert "local vhost_name" in policy_check
+
+    unsupported_column_selection = (
+        "name \\\n      pattern \\\n      apply-to \\\n      definition \\\n      priority"
+    )
+
+    assert unsupported_column_selection not in policy_check
+
+    assert '"${vhost_name}" != "${RABBITMQ_VHOST}"' in policy_check
+
+
 def test_rabbitmq_recovery_never_depends_on_queue_purge() -> None:
     """Manual purge не является частью production recovery contract."""
     script = _read("scripts/provision-rabbitmq.sh").casefold()
