@@ -11,6 +11,7 @@
 -e ./services/auth-service
 -e ./services/catalog-service
 -e ./services/context-service
+-e ./services/document-service
 -e ./services/embedding-service
 -e ./services/retrieval-service
 

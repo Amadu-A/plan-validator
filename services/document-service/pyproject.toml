@@ -1,0 +1,24 @@
+# services/document-service/pyproject.toml
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "plan-validator-document-service"
+version = "0.1.0"
+description = "Main project PDF Document Service."
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "plan-validator-common==0.1.0",
+    "fastapi==0.141.1",
+    "uvicorn==0.52.1",
+    "pydantic==2.13.5",
+    "SQLAlchemy==2.0.52",
+    "alembic==1.19.2",
+    "psycopg[binary]==3.3.5",
+    "PyMuPDF==1.28.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/document_service"]
